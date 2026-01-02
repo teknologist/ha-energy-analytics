@@ -7,7 +7,7 @@
     "start": "wattpm start",
     "build": "wattpm build"
   },
-  "devDependencies": {
+  "dependencies": {
     "wattpm": "^3.29.1"
   }
 }
