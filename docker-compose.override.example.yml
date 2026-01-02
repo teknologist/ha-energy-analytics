@@ -25,6 +25,14 @@ services:
       - LOG_LEVEL=debug
       # - NODE_ENV=development
 
+  # Example: MongoDB with authentication (recommended for production)
+  # mongodb:
+  #   environment:
+  #     - MONGO_INITDB_ROOT_USERNAME=admin
+  #     - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:-changeme}
+  #   # Note: Update MONGODB_URI in .env to include credentials:
+  #   # MONGODB_URI=mongodb://admin:changeme@mongodb:27017/energy_dashboard?authSource=admin
+
   # Example: MongoDB with custom configuration
   # mongodb:
   #   command: ["mongod", "--logappend", "--logpath", "/var/log/mongodb/mongod.log"]

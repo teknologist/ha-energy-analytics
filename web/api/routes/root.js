@@ -9,7 +9,17 @@ export default async function rootRoutes(fastify, options) {
           200: {
             type: 'object',
             properties: {
-              status: { type: 'string' },
+              status: { type: 'string', enum: ['ok'] },
+              homeAssistant: { type: 'boolean' },
+              mongodb: { type: 'boolean' },
+              questdb: { type: 'boolean' },
+              timestamp: { type: 'string' },
+            },
+          },
+          503: {
+            type: 'object',
+            properties: {
+              status: { type: 'string', enum: ['degraded'] },
               homeAssistant: { type: 'boolean' },
               mongodb: { type: 'boolean' },
               questdb: { type: 'boolean' },
@@ -21,14 +31,24 @@ export default async function rootRoutes(fastify, options) {
     },
     async (request, reply) => {
       const mongoHealth = await fastify.mongo.healthCheck();
+      const questdbConnected = fastify.questdb?.isConnected() || false;
 
-      return {
-        status: 'ok',
+      // Core services health determines overall status
+      const isHealthy = mongoHealth.healthy && questdbConnected;
+
+      const response = {
+        status: isHealthy ? 'ok' : 'degraded',
         homeAssistant: fastify.ha?.connected || false,
         mongodb: mongoHealth.healthy,
-        questdb: fastify.questdb?.isConnected() || false,
+        questdb: questdbConnected,
         timestamp: new Date().toISOString(),
       };
+
+      if (!isHealthy) {
+        return reply.code(503).send(response);
+      }
+
+      return response;
     }
   );
 

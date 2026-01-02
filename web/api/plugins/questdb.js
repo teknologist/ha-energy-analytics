@@ -14,6 +14,84 @@ import { Sender } from '@questdb/nodejs-client';
  * - energy_statistics: Hourly/daily aggregated statistics
  */
 
+// ============================================================================
+// Input Sanitization Helpers (SQL Injection Prevention)
+// ============================================================================
+
+/**
+ * Sanitize entity ID - must match Home Assistant pattern: domain.object_id
+ * @param {string} value - Entity ID to sanitize
+ * @returns {string} Sanitized entity ID
+ * @throws {Error} If invalid format
+ */
+function sanitizeEntityId(value) {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error('Entity ID must be a non-empty string');
+  }
+  // Home Assistant entity IDs: domain.object_id (alphanumeric + underscore)
+  if (!/^[a-z_]+\.[a-z0-9_]+$/i.test(value)) {
+    throw new Error(`Invalid entity_id format: ${value}`);
+  }
+  return value;
+}
+
+/**
+ * Sanitize timestamp - must be valid ISO 8601 or Date
+ * @param {string|Date} value - Timestamp to sanitize
+ * @returns {string} ISO 8601 timestamp string
+ * @throws {Error} If invalid timestamp
+ */
+function sanitizeTimestamp(value) {
+  let date;
+  if (value instanceof Date) {
+    date = value;
+  } else if (typeof value === 'string') {
+    date = new Date(value);
+  } else {
+    throw new Error(`Invalid timestamp type: ${typeof value}`);
+  }
+
+  if (isNaN(date.getTime())) {
+    throw new Error(`Invalid timestamp: ${value}`);
+  }
+  return date.toISOString();
+}
+
+/**
+ * Sanitize numeric limit - must be positive integer
+ * @param {number} value - Limit value
+ * @param {number} max - Maximum allowed value (default: 100000)
+ * @returns {number} Sanitized limit
+ * @throws {Error} If invalid number
+ */
+function sanitizeLimit(value, max = 100000) {
+  const num = parseInt(value, 10);
+  if (isNaN(num) || num < 1) {
+    throw new Error(`Invalid limit: ${value}`);
+  }
+  return Math.min(num, max);
+}
+
+/**
+ * Sanitize period - must be valid period string
+ * @param {string} value - Period to sanitize
+ * @returns {string} Sanitized period
+ * @throws {Error} If invalid period
+ */
+function sanitizePeriod(value) {
+  const validPeriods = ['hour', 'day', 'week', 'month', 'year'];
+  if (!validPeriods.includes(value)) {
+    throw new Error(
+      `Invalid period: ${value}. Must be one of: ${validPeriods.join(', ')}`
+    );
+  }
+  return value;
+}
+
+// ============================================================================
+// Plugin Implementation
+// ============================================================================
+
 async function questdbPlugin(fastify, options) {
   const config = {
     host: process.env.QUESTDB_HOST || 'localhost',
@@ -27,7 +105,10 @@ async function questdbPlugin(fastify, options) {
   let sender = null;
   let isConnected = false;
   let reconnectTimer = null;
-  const RECONNECT_INTERVAL = 5000; // 5 seconds
+  const RECONNECT_INTERVAL = parseInt(
+    process.env.QUESTDB_RECONNECT_INTERVAL || '5000',
+    10
+  );
 
   /**
    * Initialize ILP connection with retry logic
@@ -153,16 +234,21 @@ async function questdbPlugin(fastify, options) {
 
     try {
       for (const reading of readings) {
-        sender
+        const row = sender
           .table('energy_readings')
           .symbol('entity_id', reading.entity_id)
-          .floatColumn('state', reading.state)
-          .floatColumn('previous_state', reading.previous_state || null)
-          .stringColumn(
-            'attributes',
-            reading.attributes ? JSON.stringify(reading.attributes) : null
-          )
-          .at(reading.timestamp || Date.now() * 1000000, 'ns'); // Convert ms to ns
+          .floatColumn('state', reading.state);
+
+        // Only add optional columns if they have values (avoid null in ILP)
+        if (reading.previous_state != null) {
+          row.floatColumn('previous_state', reading.previous_state);
+        }
+
+        if (reading.attributes) {
+          row.stringColumn('attributes', JSON.stringify(reading.attributes));
+        }
+
+        row.at(reading.timestamp || Date.now() * 1000000, 'ns');
       }
 
       await sender.flush();
@@ -193,16 +279,29 @@ async function questdbPlugin(fastify, options) {
 
     try {
       for (const stat of stats) {
-        sender
+        const row = sender
           .table('energy_statistics')
           .symbol('entity_id', stat.entity_id)
-          .symbol('period', stat.period || 'hour')
-          .floatColumn('state', stat.state || null)
-          .floatColumn('sum', stat.sum || null)
-          .floatColumn('mean', stat.mean || null)
-          .floatColumn('min', stat.min || null)
-          .floatColumn('max', stat.max || null)
-          .at(stat.timestamp || Date.now() * 1000000, 'ns'); // Convert ms to ns
+          .symbol('period', stat.period || 'hour');
+
+        // Only add optional columns if they have values (avoid null in ILP)
+        if (stat.state != null) {
+          row.floatColumn('state', stat.state);
+        }
+        if (stat.sum != null) {
+          row.floatColumn('sum', stat.sum);
+        }
+        if (stat.mean != null) {
+          row.floatColumn('mean', stat.mean);
+        }
+        if (stat.min != null) {
+          row.floatColumn('min', stat.min);
+        }
+        if (stat.max != null) {
+          row.floatColumn('max', stat.max);
+        }
+
+        row.at(stat.timestamp || Date.now() * 1000000, 'ns');
       }
 
       await sender.flush();
@@ -230,18 +329,20 @@ async function questdbPlugin(fastify, options) {
    * @returns {Promise<Array>}
    */
   async function getReadings(entityId, startTime, endTime, limit = 10000) {
-    const start =
-      typeof startTime === 'string' ? startTime : startTime.toISOString();
-    const end = typeof endTime === 'string' ? endTime : endTime.toISOString();
+    // Sanitize all inputs to prevent SQL injection
+    const safeEntityId = sanitizeEntityId(entityId);
+    const safeStart = sanitizeTimestamp(startTime);
+    const safeEnd = sanitizeTimestamp(endTime);
+    const safeLimit = sanitizeLimit(limit);
 
     const sql = `
       SELECT entity_id, state, previous_state, attributes, timestamp
       FROM energy_readings
-      WHERE entity_id = '${entityId}'
-        AND timestamp >= '${start}'
-        AND timestamp < '${end}'
+      WHERE entity_id = '${safeEntityId}'
+        AND timestamp >= '${safeStart}'
+        AND timestamp < '${safeEnd}'
       ORDER BY timestamp DESC
-      LIMIT ${limit}
+      LIMIT ${safeLimit}
     `;
 
     const result = await executeQuery(sql);
@@ -257,18 +358,20 @@ async function questdbPlugin(fastify, options) {
    * @returns {Promise<Array>}
    */
   async function getStatistics(entityId, startTime, endTime, period = null) {
-    const start =
-      typeof startTime === 'string' ? startTime : startTime.toISOString();
-    const end = typeof endTime === 'string' ? endTime : endTime.toISOString();
-
-    const periodFilter = period ? `AND period = '${period}'` : '';
+    // Sanitize all inputs to prevent SQL injection
+    const safeEntityId = sanitizeEntityId(entityId);
+    const safeStart = sanitizeTimestamp(startTime);
+    const safeEnd = sanitizeTimestamp(endTime);
+    const periodFilter = period
+      ? `AND period = '${sanitizePeriod(period)}'`
+      : '';
 
     const sql = `
       SELECT entity_id, period, state, sum, mean, min, max, timestamp
       FROM energy_statistics
-      WHERE entity_id = '${entityId}'
-        AND timestamp >= '${start}'
-        AND timestamp < '${end}'
+      WHERE entity_id = '${safeEntityId}'
+        AND timestamp >= '${safeStart}'
+        AND timestamp < '${safeEnd}'
         ${periodFilter}
       ORDER BY timestamp ASC
     `;
@@ -285,9 +388,10 @@ async function questdbPlugin(fastify, options) {
    * @returns {Promise<Array>}
    */
   async function getDailySummary(entityId, startTime, endTime) {
-    const start =
-      typeof startTime === 'string' ? startTime : startTime.toISOString();
-    const end = typeof endTime === 'string' ? endTime : endTime.toISOString();
+    // Sanitize all inputs to prevent SQL injection
+    const safeEntityId = sanitizeEntityId(entityId);
+    const safeStart = sanitizeTimestamp(startTime);
+    const safeEnd = sanitizeTimestamp(endTime);
 
     const sql = `
       SELECT
@@ -298,9 +402,9 @@ async function questdbPlugin(fastify, options) {
         max(max) as peak,
         count() as readings
       FROM energy_statistics
-      WHERE entity_id = '${entityId}'
-        AND timestamp >= '${start}'
-        AND timestamp < '${end}'
+      WHERE entity_id = '${safeEntityId}'
+        AND timestamp >= '${safeStart}'
+        AND timestamp < '${safeEnd}'
       SAMPLE BY 1d ALIGN TO CALENDAR
     `;
 
@@ -316,9 +420,10 @@ async function questdbPlugin(fastify, options) {
    * @returns {Promise<Array>}
    */
   async function getMonthlySummary(entityId, startTime, endTime) {
-    const start =
-      typeof startTime === 'string' ? startTime : startTime.toISOString();
-    const end = typeof endTime === 'string' ? endTime : endTime.toISOString();
+    // Sanitize all inputs to prevent SQL injection
+    const safeEntityId = sanitizeEntityId(entityId);
+    const safeStart = sanitizeTimestamp(startTime);
+    const safeEnd = sanitizeTimestamp(endTime);
 
     const sql = `
       SELECT
@@ -329,9 +434,9 @@ async function questdbPlugin(fastify, options) {
         max(max) as peak,
         count() as readings
       FROM energy_statistics
-      WHERE entity_id = '${entityId}'
-        AND timestamp >= '${start}'
-        AND timestamp < '${end}'
+      WHERE entity_id = '${safeEntityId}'
+        AND timestamp >= '${safeStart}'
+        AND timestamp < '${safeEnd}'
       SAMPLE BY 1M ALIGN TO CALENDAR
     `;
 
@@ -345,10 +450,12 @@ async function questdbPlugin(fastify, options) {
    * @returns {Promise<string|null>}
    */
   async function getLatestReadingTime(entityId) {
+    const safeEntityId = sanitizeEntityId(entityId);
+
     const sql = `
       SELECT max(timestamp) as latest
       FROM energy_readings
-      WHERE entity_id = '${entityId}'
+      WHERE entity_id = '${safeEntityId}'
     `;
 
     const result = await executeQuery(sql);
@@ -363,11 +470,14 @@ async function questdbPlugin(fastify, options) {
    * @returns {Promise<string|null>}
    */
   async function getLatestStatsTime(entityId, period = 'hour') {
+    const safeEntityId = sanitizeEntityId(entityId);
+    const safePeriod = sanitizePeriod(period);
+
     const sql = `
       SELECT max(timestamp) as latest
       FROM energy_statistics
-      WHERE entity_id = '${entityId}'
-        AND period = '${period}'
+      WHERE entity_id = '${safeEntityId}'
+        AND period = '${safePeriod}'
     `;
 
     const result = await executeQuery(sql);

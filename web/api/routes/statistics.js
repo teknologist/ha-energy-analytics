@@ -112,6 +112,8 @@ export default async function statisticsRoutes(fastify, options) {
 
         return {
           success: true,
+          warning:
+            'Statistics fetched but not yet persisted to QuestDB (TEK-36 pending)',
           entities_synced: Object.keys(stats).length,
           records_synced: totalRecords,
           period,
