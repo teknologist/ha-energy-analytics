@@ -23,15 +23,17 @@ jobs:
           --health-retries 5
 
       questdb:
-        image: questdb/questdb:8.0.0
+        image: questdb/questdb:9.2.3
         ports:
           - 9000:9000
+          - 9003:9003
           - 9009:9009
         options: >-
-          --health-cmd "curl -f http://localhost:9000 || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+          --health-cmd "curl -f http://localhost:9003/ || exit 1"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 30
+          --health-start-period 40s
 
     steps:
       - name: Checkout code
