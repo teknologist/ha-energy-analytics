@@ -7,24 +7,29 @@ A standalone energy monitoring dashboard that fetches consumption data from Home
 ```mermaid
 flowchart TB
     subgraph Watt["Platformatic Watt Runtime"]
+        subgraph RuntimePlugins["Runtime Plugins (Shared)"]
+            Mongo["mongodb.js"]
+            QDB["questdb.js"]
+            HA["home-assistant.js"]
+        end
+
         Runtime["localhost:3042"]
         API["API Service<br/>/api/*"]
+        Recorder["Recorder Service"]
         Frontend["Frontend<br/>/dashboard/*"]
+
         Runtime --> API
+        Runtime --> Recorder
         Runtime --> Frontend
     end
 
-    subgraph Plugins["API Plugins"]
-        HA["home-assistant.js"]
-        Mongo["mongodb.js"]
-        QDB["questdb.js"]
-        Recorder["event-recorder.js"]
-    end
-
-    API --> HA
     API --> Mongo
     API --> QDB
-    API --> Recorder
+    API --> HA
+
+    Recorder --> Mongo
+    Recorder --> QDB
+    Recorder --> HA
 
     MongoDB[(MongoDB)]
     QuestDB[(QuestDB)]
@@ -33,10 +38,13 @@ flowchart TB
     Mongo --> MongoDB
     QDB --> QuestDB
     HA <--> HomeAssistant
-    Recorder --> HA
-    Recorder --> Mongo
-    Recorder --> QDB
 ```
+
+### Key Architecture Points
+
+- **Runtime-Level Shared Plugins**: MongoDB, QuestDB, and Home Assistant plugins are registered at the Watt runtime level, making decorators available to all services
+- **Independent Recorder Service**: Event recording runs as a separate service for better separation of concerns
+- **Shared Connection Pools**: All services share the same database connections
 
 ## Data Flow
 
@@ -221,16 +229,30 @@ async getWeeklySummary(entityId, startTime, endTime) {
 
 Create a new route in `web/api/routes/` that joins statistics with tariff data from MongoDB.
 
-### Real-time Sync (Event Recorder)
+### Real-time Sync (Recorder Service)
 
-The `event-recorder.js` plugin automatically handles data synchronization:
+The Recorder service (`web/recorder/`) runs as an independent Platformatic Watt service that automatically handles data synchronization:
 
-- **WebSocket subscription**: Listens to `state_changed` events from Home Assistant
-- **Real-time ingestion**: Energy readings stored immediately as events occur
+- **WebSocket subscription**: Listens to `state_changed` events from Home Assistant via shared `fastify.ha` plugin
+- **Real-time ingestion**: Energy readings stored immediately to QuestDB as events occur
 - **Heartbeat checks**: Every 5 minutes, verifies subscription is active
 - **Hourly backfill**: Reconciles any gaps by fetching from HA recorder API
 
 No cron jobs needed - sync is fully automatic once connected to Home Assistant.
+
+**Directory Structure:**
+```
+runtime-plugins/           # Shared plugins (all services access)
+├── mongodb.js             # Application state
+├── questdb.js             # Time-series data
+└── home-assistant.js      # HA WebSocket client
+web/
+├── api/                   # API routes only
+├── recorder/              # Event recording service
+│   └── plugins/
+│       └── event-recorder.js
+└── frontend/
+```
 
 #### Manual sync (if needed)
 

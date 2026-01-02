@@ -28,45 +28,53 @@ flowchart TB
         direction TB
         Runtime["Runtime (entrypoint)<br/>localhost:3042"]
 
+        subgraph RuntimePlugins["Runtime Plugins (Shared)"]
+            Mongo["mongodb.js"]
+            QDB["questdb.js"]
+            HA["home-assistant.js"]
+        end
+
         subgraph Services["Services"]
             API["API Service<br/>/api/*<br/>Fastify"]
+            Recorder["Recorder Service<br/>Event Sync"]
             Frontend["Frontend<br/>/dashboard/*<br/>React + Vite"]
         end
 
         Runtime --> API
+        Runtime --> Recorder
         Runtime --> Frontend
     end
 
-    subgraph Plugins["API Plugins"]
-        HA["home-assistant.js<br/>WebSocket Client"]
-        DB["database.js<br/>Knex.js"]
-        Recorder["event-recorder.js<br/>Real-time Sync"]
-    end
-
+    API --> Mongo
+    API --> QDB
     API --> HA
-    API --> DB
-    API --> Recorder
+
+    Recorder --> Mongo
+    Recorder --> QDB
+    Recorder --> HA
 
     subgraph Storage["Data Storage"]
         MongoDB["MongoDB<br/>(Application State)"]
         QuestDB["QuestDB<br/>(Time-Series)"]
     end
 
-    DB --> MongoDB
-
-    subgraph TimeSeriesPlugin["timeseries.js"]
-        QDB["QuestDB Client"]
-    end
-
-    API --> TimeSeriesPlugin
+    Mongo --> MongoDB
     QDB --> QuestDB
 
     HomeAssistant["Home Assistant<br/>WebSocket API"]
 
     HA <--> HomeAssistant
-    Recorder --> HA
-    Recorder --> DB
 ```
+
+### Key Architecture Points
+
+1. **Runtime-Level Shared Plugins**: All database and Home Assistant plugins are registered at the Watt runtime level with `encapsulate: false`, making decorators (`fastify.mongo`, `fastify.questdb`, `fastify.ha`) available to all services.
+
+2. **Independent Recorder Service**: The event recorder runs as a separate Platformatic service (`web/recorder/`), not a plugin within the API service. This provides better separation of concerns and independent scaling.
+
+3. **Shared Connection Pools**: All services share the same database connections, which is more efficient than each service maintaining its own pool.
+
+4. **Reference**: See `specs/platformatic-watt-shared-db-plugin.md` for the shared plugin pattern.
 
 ### Data Flow Architecture
 
@@ -154,26 +162,33 @@ flowchart TB
 
 ```
 energy-dashboard/
-├── watt.json                    # Watt root configuration
+├── watt.json                    # Watt root configuration with runtime plugins
 ├── package.json
 ├── .env                         # Environment variables (fallback only)
-├── data/                        # SQLite database storage (dev)
+├── runtime-plugins/             # Shared plugins (all services access)
+│   ├── mongodb.js               # fastify.mongo decorator
+│   ├── questdb.js               # fastify.questdb decorator
+│   └── home-assistant.js        # fastify.ha decorator
+├── data/                        # Data storage (dev)
 │   └── .gitkeep
 └── web/
-    ├── api/                     # Fastify API service
+    ├── api/                     # Fastify API service (routes only)
     │   ├── watt.json
     │   ├── package.json
     │   ├── platformatic.json
-    │   └── plugins/
-    │       ├── home-assistant.js  # WebSocket client + subscriptions
-    │       ├── database.js        # Knex.js multi-DB support
-    │       └── event-recorder.js  # Real-time event sync + reconciliation
     │   └── routes/
     │       ├── root.js
     │       ├── entities.js
     │       ├── statistics.js
     │       ├── settings.js      # Settings CRUD endpoints
     │       └── realtime.js      # Real-time readings & subscription status
+    │
+    ├── recorder/                # Event recording service (independent)
+    │   ├── watt.json
+    │   ├── package.json
+    │   ├── platformatic.json
+    │   └── plugins/
+    │       └── event-recorder.js  # Real-time event sync + reconciliation
     │
     └── frontend/                # React frontend
         ├── watt.json
@@ -347,9 +362,11 @@ CREATE TABLE energy_statistics (
 ) TIMESTAMP(timestamp) PARTITION BY MONTH;
 ```
 
-### MongoDB Plugin (Application State)
+### MongoDB Plugin (Application State) - Runtime Level
 
-**File: `web/api/plugins/mongodb.js`**
+**File: `runtime-plugins/mongodb.js`**
+
+> **Note**: This plugin is registered at the Watt runtime level with `encapsulate: false`, making `fastify.mongo` available to all services (API and Recorder).
 ```javascript
 import fp from 'fastify-plugin';
 import { MongoClient } from 'mongodb';
@@ -477,9 +494,11 @@ async function mongodbPlugin(fastify, options) {
 export default fp(mongodbPlugin, { name: 'mongodb' });
 ```
 
-### QuestDB Plugin (Time-Series Data)
+### QuestDB Plugin (Time-Series Data) - Runtime Level
 
-**File: `web/api/plugins/questdb.js`**
+**File: `runtime-plugins/questdb.js`**
+
+> **Note**: This plugin is registered at the Watt runtime level with `encapsulate: false`, making `fastify.questdb` available to all services (API and Recorder).
 ```javascript
 import fp from 'fastify-plugin';
 import { Sender } from '@questdb/nodejs-client';

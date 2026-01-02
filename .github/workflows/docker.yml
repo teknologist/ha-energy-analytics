@@ -117,20 +117,42 @@ jobs:
       - name: Start database services
         run: |
           docker compose up -d mongodb questdb
-          # Wait for databases to be healthy
-          echo "Waiting for MongoDB..."
-          timeout 60 bash -c 'until docker compose exec -T mongodb mongosh --eval "db.adminCommand({ping: 1})" 2>/dev/null; do sleep 2; done'
-          echo "Waiting for QuestDB..."
-          timeout 60 bash -c 'until curl -sf http://localhost:9000/exec?query=SELECT%201 2>/dev/null; do sleep 2; done'
-          echo "Databases ready"
+          echo "Waiting for services to start..."
+          sleep 30
 
-      - name: Start API service
+      - name: Verify databases are running
         run: |
-          docker compose up -d api
-          # Wait for API to be healthy
-          echo "Waiting for API..."
-          timeout 120 bash -c 'until curl -sf http://localhost:3042/api/health 2>/dev/null; do sleep 2; done'
-          echo "API ready"
+          echo "Checking MongoDB..."
+          docker compose exec -T mongodb mongosh --eval "db.adminCommand('ping')" || exit 1
+          echo "MongoDB is ready"
+
+          echo "Checking QuestDB..."
+          # Wait for QuestDB HTTP port to be accessible
+          for i in {1..30}; do
+            if curl -sf http://localhost:9000 >/dev/null 2>&1; then
+              echo "QuestDB is ready"
+              break
+            fi
+            echo "Waiting for QuestDB... ($i/30)"
+            sleep 5
+          done
+          curl -sf http://localhost:9000 || (echo "QuestDB failed to start" && exit 1)
+
+      - name: Build and start API
+        run: |
+          docker compose up -d --build api
+          echo "Waiting for API to start..."
+          sleep 30
+
+          # Wait for API health
+          for i in {1..20}; do
+            if curl -sf http://localhost:3042/api/health >/dev/null 2>&1; then
+              echo "API is ready"
+              break
+            fi
+            echo "Waiting for API... ($i/20)"
+            sleep 5
+          done
 
       - name: Run API tests
         run: |

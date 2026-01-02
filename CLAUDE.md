@@ -32,24 +32,29 @@ cd web/frontend && npm install && cd ../..
 ```mermaid
 flowchart TB
     subgraph Watt["Platformatic Watt Runtime"]
+        subgraph RuntimePlugins["Runtime Plugins (Shared)"]
+            Mongo["mongodb.js"]
+            QDB["questdb.js"]
+            HA["home-assistant.js"]
+        end
+
         Runtime["localhost:3042"]
         API["API Service /api/*"]
+        Recorder["Recorder Service"]
         Frontend["Frontend /dashboard/*"]
+
         Runtime --> API
+        Runtime --> Recorder
         Runtime --> Frontend
     end
 
-    subgraph Plugins["API Plugins"]
-        HA["home-assistant.js"]
-        Mongo["mongodb.js"]
-        QDB["questdb.js"]
-        Recorder["event-recorder.js"]
-    end
-
-    API --> HA
     API --> Mongo
     API --> QDB
-    API --> Recorder
+    API --> HA
+
+    Recorder --> Mongo
+    Recorder --> QDB
+    Recorder --> HA
 
     MongoDB[(MongoDB)]
     QuestDB[(QuestDB)]
@@ -58,18 +63,22 @@ flowchart TB
     Mongo --> MongoDB
     QDB --> QuestDB
     HA <--> HomeAssistant
-    Recorder --> HA
-    Recorder --> Mongo
-    Recorder --> QDB
 ```
+
+**Runtime Plugins** (`runtime-plugins/`): Shared across all services with `encapsulate: false`
+- `mongodb.js` - Application state storage (settings, entities, subscriptions)
+- `questdb.js` - Time-series data storage (readings, statistics)
+- `home-assistant.js` - WebSocket client + event subscriptions
 
 **Services:**
 - **API** (`web/api/`): Fastify service with `@platformatic/service`
-  - `plugins/home-assistant.js` - WebSocket client + event subscriptions
-  - `plugins/mongodb.js` - Application state storage (settings, entities, subscriptions)
-  - `plugins/questdb.js` - Time-series data storage (readings, statistics)
-  - `plugins/event-recorder.js` - Real-time sync + reconciliation
   - `routes/` - Auto-loaded routes (entities, statistics, realtime, settings)
+  - Accesses shared plugins via `fastify.mongo`, `fastify.questdb`, `fastify.ha`
+
+- **Recorder** (`web/recorder/`): Independent event recording service
+  - `plugins/event-recorder.js` - Real-time sync + reconciliation
+  - Subscribes to Home Assistant state_changed events
+  - Handles heartbeat checks and hourly backfill
 
 - **Frontend** (`web/frontend/`): React + Vite served at `/dashboard`
   - Uses React Query, Recharts, ShadCN UI (Radix + Tailwind)
@@ -145,11 +154,32 @@ flowchart LR
 | `/api/subscription/status` | GET | Event subscription status |
 | `/api/subscription/backfill` | POST | Force backfill |
 
+## Directory Structure
+
+```
+energy-tracker/
+├── watt.json                    # Runtime config with shared plugins
+├── runtime-plugins/             # Shared plugins (all services access)
+│   ├── mongodb.js               # fastify.mongo decorator
+│   ├── questdb.js               # fastify.questdb decorator
+│   └── home-assistant.js        # fastify.ha decorator
+├── web/
+│   ├── api/                     # API Service (routes only)
+│   │   ├── platformatic.json
+│   │   └── routes/
+│   ├── recorder/                # Recorder Service (event handling)
+│   │   ├── platformatic.json
+│   │   └── plugins/
+│   │       └── event-recorder.js
+│   └── frontend/                # React frontend
+└── docker/
+```
+
 ## Extending
 
-**Add new aggregations**: Use QuestDB's `SAMPLE BY` in `web/api/plugins/questdb.js`
+**Add new aggregations**: Use QuestDB's `SAMPLE BY` in `runtime-plugins/questdb.js`
 **Add new routes**: Create files in `web/api/routes/` - auto-loaded via platformatic.json
-**Add new plugins**: Create in `web/api/plugins/` and register in `platformatic.json`
+**Add shared plugins**: Create in `runtime-plugins/` and register in root `watt.json`
 
 ## Linear Integration
 
