@@ -17,12 +17,12 @@
     "@questdb/nodejs-client": "^4.2.0",
     "fastify-plugin": "^5.1.0",
     "mongodb": "^7.0.0",
-    "wattpm": "^3.29.1",
-    "ws": "^8.18.3"
+    "wattpm": "^3.29.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.57.0",
     "@vitest/coverage-v8": "^4.0.16",
-    "vitest": "^4.0.16"
+    "vitest": "^4.0.16",
+    "ws": "^8.18.3"
   }
 }

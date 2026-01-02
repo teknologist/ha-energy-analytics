@@ -181,6 +181,19 @@ energy-tracker/
 **Add new routes**: Create files in `web/api/routes/` - auto-loaded via platformatic.json
 **Add shared plugins**: Create in `runtime-plugins/` and register in root `watt.json`
 
+## Critical Rules
+
+### Test Failures
+
+**NEVER change assertions just to make tests pass naively.** When a test fails:
+
+1. **Investigate** - Understand why the test is failing
+2. **Determine the root cause** - Is the code wrong or is the assertion wrong?
+3. **Fix appropriately**:
+   - If the code is wrong → fix the code
+   - If the assertion was incorrect → fix the assertion with clear justification
+4. **Never blindly modify assertions** without understanding the underlying issue
+
 ## Linear Integration
 
 - **Project**: `ha-energy-analytics`

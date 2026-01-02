@@ -53,6 +53,21 @@ jobs:
           cd web/api
           npm ci
 
+      - name: Start mock Home Assistant for unit tests
+        run: |
+          mkdir -p logs
+          export HA_MOCK_PORT=8123
+          nohup node tests/mock-ha-server.js > logs/mock-ha.log 2>&1 &
+          echo $! > logs/mock-ha.pid
+          # Wait for mock HA to be ready
+          for i in {1..20}; do
+            if curl -sf http://127.0.0.1:8123/health > /dev/null 2>&1; then
+              echo "Mock HA server is ready"
+              break
+            fi
+            sleep 1
+          done
+
       - name: Install frontend dependencies
         run: |
           cd web/frontend
@@ -65,7 +80,7 @@ jobs:
           QUESTDB_HOST: localhost
           QUESTDB_HTTP_PORT: 9000
           QUESTDB_ILP_PORT: 9009
-          HA_URL: homeassistant.local:8123
+          HA_URL: localhost:8123
           HA_TOKEN: ${{ secrets.HA_TEST_TOKEN || 'test_token_for_ci' }}
 
       - name: Generate coverage report
@@ -75,7 +90,7 @@ jobs:
           QUESTDB_HOST: localhost
           QUESTDB_HTTP_PORT: 9000
           QUESTDB_ILP_PORT: 9009
-          HA_URL: homeassistant.local:8123
+          HA_URL: localhost:8123
           HA_TOKEN: ${{ secrets.HA_TEST_TOKEN || 'test_token_for_ci' }}
 
       - name: Upload coverage reports
@@ -94,6 +109,22 @@ jobs:
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
+
+      - name: Start mock Home Assistant server
+        run: |
+          mkdir -p logs
+          export HA_MOCK_PORT=8123
+          nohup node tests/mock-ha-server.js > logs/mock-ha.log 2>&1 &
+          echo $! > logs/mock-ha.pid
+          # Wait for mock HA to be ready
+          for i in {1..20}; do
+            if curl -sf http://127.0.0.1:8123/health > /dev/null 2>&1; then
+              echo "Mock HA server is ready"
+              break
+            fi
+            echo "Waiting for mock HA server... ($i/20)"
+            sleep 1
+          done
 
       - name: Start dev server
         run: |
@@ -120,7 +151,7 @@ jobs:
           QUESTDB_HOST: localhost
           QUESTDB_HTTP_PORT: 9000
           QUESTDB_ILP_PORT: 9009
-          HA_URL: homeassistant.local:8123
+          HA_URL: localhost:8123
           HA_TOKEN: ${{ secrets.HA_TEST_TOKEN || 'test_token_for_ci' }}
 
       - name: Check server logs after tests
