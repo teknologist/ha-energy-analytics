@@ -22,11 +22,13 @@
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-tooltip": "^1.2.7"
   },
+  "dependencies": {
+    "@platformatic/vite": "^3.29.1"
+  },
   "devDependencies": {
     "@tanstack/router-plugin": "^1.120.3",
     "@vitejs/plugin-react": "^4.5.2",
     "vite": "^6.3.5",
-    "@platformatic/vite": "^3.29.1",
     "tailwindcss": "^3.4.19",
     "postcss": "^8.5.4",
     "autoprefixer": "^10.4.21"
