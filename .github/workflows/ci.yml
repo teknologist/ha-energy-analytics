@@ -97,11 +97,14 @@ jobs:
 
       - name: Start dev server
         run: |
-          npm run dev &
+          mkdir -p logs
+          nohup npm run dev > logs/server.log 2>&1 &
+          echo $! > logs/server.pid
           # Wait for server to be ready (use 127.0.0.1 to avoid IPv6 issues)
           for i in {1..60}; do
             if curl -sf http://127.0.0.1:3042/api/health > /dev/null 2>&1; then
               echo "Server is ready"
+              cat logs/server.log
               break
             fi
             echo "Waiting for server... ($i/60)"
@@ -117,6 +120,22 @@ jobs:
           QUESTDB_ILP_PORT: 9009
           HA_URL: homeassistant.local:8123
           HA_TOKEN: ${{ secrets.HA_TEST_TOKEN || 'test_token_for_ci' }}
+
+      - name: Check server logs after tests
+        if: always()
+        run: |
+          echo "Server process status:"
+          if [ -f logs/server.pid ]; then
+            pid=$(cat logs/server.pid)
+            if ps -p $pid > /dev/null; then
+              echo "Server is still running (PID: $pid)"
+            else
+              echo "Server process has terminated"
+            fi
+          fi
+          echo ""
+          echo "Server logs:"
+          cat logs/server.log || true
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4
