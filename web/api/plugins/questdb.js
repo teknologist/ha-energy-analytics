@@ -124,10 +124,9 @@ async function questdbPlugin(fastify, options) {
     }
 
     try {
-      sender = Sender.fromConfig(
+      sender = await Sender.fromConfig(
         `http::addr=${config.host}:${config.ilpPort};`
       );
-      await sender.connect();
       isConnected = true;
       fastify.log.info('QuestDB ILP connection established');
 
