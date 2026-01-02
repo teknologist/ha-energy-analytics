@@ -1,0 +1,68 @@
+# Dependencies
+node_modules/
+web/api/node_modules/
+web/frontend/node_modules/
+
+# Data directories
+data/
+*.sqlite
+*.db
+
+# Git
+.git/
+.gitignore
+
+# Environment files
+.env.*.local
+.env.local
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Coverage
+coverage/
+.nyc_output/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+build/
+.cache/
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Documentation
+README.md
+docs/
+specs/
+
+# Testing
+test/
+tests/
+*.test.js
+*.spec.js
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Misc
+.claude/
+claude-instance/

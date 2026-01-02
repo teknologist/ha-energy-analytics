@@ -1,0 +1,96 @@
+# Multi-stage build for Energy Dashboard API
+# Base: Node.js 22 Alpine for minimal image size
+
+# ============================================
+# Builder Stage - Install dependencies
+# ============================================
+FROM node:22-alpine AS builder
+
+# Install build dependencies for native modules
+RUN apk add --no-cache python3 make g++
+
+WORKDIR /build
+
+# Copy root package files
+COPY package*.json ./
+
+# Copy workspace package files
+COPY web/api/package*.json ./web/api/
+COPY web/frontend/package*.json ./web/frontend/
+
+# Install all dependencies (including dev dependencies for build)
+RUN npm ci
+
+# Copy workspace dependencies
+WORKDIR /build/web/api
+RUN npm ci
+
+WORKDIR /build/web/frontend
+RUN npm ci
+
+# Copy application source
+WORKDIR /build
+COPY . .
+
+# Build frontend assets
+WORKDIR /build/web/frontend
+RUN npm run build
+
+# ============================================
+# Production Stage - Runtime image
+# ============================================
+FROM node:22-alpine AS production
+
+# Install runtime dependencies for native modules
+RUN apk add --no-cache libstdc++
+
+# Create app user for security
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
+WORKDIR /app
+
+# Copy package files
+COPY --chown=nodejs:nodejs package*.json ./
+COPY --chown=nodejs:nodejs watt.json ./
+
+# Copy workspace configurations
+COPY --chown=nodejs:nodejs web/api/package*.json ./web/api/
+COPY --chown=nodejs:nodejs web/api/platformatic.json ./web/api/
+COPY --chown=nodejs:nodejs web/frontend/package*.json ./web/frontend/
+COPY --chown=nodejs:nodejs web/frontend/watt.json ./web/frontend/
+
+# Install production dependencies only
+RUN npm ci --omit=dev
+
+# Install workspace production dependencies
+WORKDIR /app/web/api
+RUN npm ci --omit=dev
+
+WORKDIR /app/web/frontend
+RUN npm ci --omit=dev
+
+# Copy application code from builder
+WORKDIR /app
+COPY --chown=nodejs:nodejs --from=builder /build/web/api/routes ./web/api/routes
+COPY --chown=nodejs:nodejs --from=builder /build/web/api/plugins ./web/api/plugins
+COPY --chown=nodejs:nodejs --from=builder /build/web/api/lib ./web/api/lib
+COPY --chown=nodejs:nodejs --from=builder /build/web/frontend/dist ./web/frontend/dist
+COPY --chown=nodejs:nodejs --from=builder /build/web/frontend/vite.config.js ./web/frontend/
+COPY --chown=nodejs:nodejs --from=builder /build/web/frontend/index.html ./web/frontend/
+
+# Create data directory for local state (if needed)
+RUN mkdir -p /app/data && chown -R nodejs:nodejs /app/data
+
+# Switch to non-root user
+USER nodejs
+
+# Expose application port
+EXPOSE 3042
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD node -e "require('http').get('http://localhost:3042/api/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))" || exit 1
+
+# Start the application using wattpm (Platformatic Watt runtime)
+CMD ["npm", "start"]
