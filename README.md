@@ -1,31 +1,69 @@
 # Energy Dashboard
 
-A standalone energy monitoring dashboard that fetches consumption data from Home Assistant and provides analysis, charts, and consolidated views.
+A standalone energy monitoring dashboard that fetches consumption data from Home Assistant via WebSocket API and provides analysis, charts, and consolidated views.
 
 ## Architecture
 
+```mermaid
+flowchart TB
+    subgraph Watt["Platformatic Watt Runtime"]
+        Runtime["localhost:3042"]
+        API["API Service<br/>/api/*"]
+        Frontend["Frontend<br/>/dashboard/*"]
+        Runtime --> API
+        Runtime --> Frontend
+    end
+
+    subgraph Plugins["API Plugins"]
+        HA["home-assistant.js"]
+        DB["database.js"]
+        Recorder["event-recorder.js"]
+    end
+
+    API --> HA
+    API --> DB
+    API --> Recorder
+
+    Database[(SQLite/PostgreSQL)]
+    HomeAssistant[Home Assistant]
+
+    DB --> Database
+    HA <--> HomeAssistant
+    Recorder --> HA
+    Recorder --> DB
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Platformatic Watt                         │
-│                                                              │
-│  ┌─────────────────────┐    ┌─────────────────────────────┐ │
-│  │   API Service       │    │   Frontend (Vue + Vite)     │ │
-│  │   (Fastify)         │    │                             │ │
-│  │                     │    │   - Entity selector         │ │
-│  │   - /api/entities   │◄───│   - Time range picker       │ │
-│  │   - /api/statistics │    │   - Stats cards             │ │
-│  │   - /api/sync       │    │   - Charts (Chart.js)       │ │
-│  │                     │    │                             │ │
-│  └─────────┬───────────┘    └─────────────────────────────┘ │
-│            │                                                 │
-└────────────┼─────────────────────────────────────────────────┘
-             │
-             │ WebSocket API
-             ▼
-┌─────────────────────┐      ┌─────────────────────┐
-│   Home Assistant    │      │   SQLite Cache      │
-│   (recorder DB)     │      │   (local storage)   │
-└─────────────────────┘      └─────────────────────┘
+
+## Data Flow
+
+```mermaid
+flowchart LR
+    subgraph HA[Home Assistant]
+        States[Entity States]
+        RecorderDB[Recorder DB]
+    end
+
+    subgraph Sync[Data Sync]
+        Events[state_changed events]
+        Manual[Manual sync API]
+    end
+
+    subgraph DB[Database]
+        Readings[energy_readings]
+        Stats[energy_statistics]
+    end
+
+    States --> Events
+    Events --> Readings
+    RecorderDB --> Manual
+    Manual --> Stats
+
+    subgraph Reconciliation
+        Heartbeat[5-min check]
+        Hourly[Hourly backfill]
+    end
+
+    Heartbeat --> Events
+    Hourly --> Stats
 ```
 
 ## Features
@@ -33,7 +71,7 @@ A standalone energy monitoring dashboard that fetches consumption data from Home
 - **Real-time sync** from Home Assistant via WebSocket API
 - **Local caching** with SQLite for fast queries
 - **Multiple aggregations**: hourly, daily, monthly
-- **Interactive charts** with Chart.js
+- **Interactive charts** with Recharts
 - **Entity auto-discovery** for energy/power sensors
 - **OpenAPI documentation** at `/api/documentation`
 
@@ -125,7 +163,22 @@ npm run dev
 1. **Sync**: POST to `/api/statistics/sync` fetches from HA WebSocket API
 2. **Cache**: Data stored in SQLite with proper indexing
 3. **Query**: Frontend fetches aggregated data from cached records
-4. **Display**: Vue components render charts with Chart.js
+4. **Display**: React components render charts with Recharts
+
+## Tech Stack
+
+### Backend
+- **Runtime**: Platformatic Watt (orchestrates API and frontend)
+- **API**: Fastify with `@platformatic/service`
+- **Database**: Knex.js with SQLite/PostgreSQL support
+- **WebSocket**: Native `ws` client for Home Assistant
+
+### Frontend
+- **Framework**: React 18 with Vite
+- **Routing**: TanStack Router
+- **Data Fetching**: TanStack Query
+- **Charts**: Recharts
+- **UI Components**: shadcn/ui (Radix UI + Tailwind CSS)
 
 ## Extending
 
