@@ -98,9 +98,9 @@ jobs:
       - name: Start dev server
         run: |
           npm run dev &
-          # Wait for server to be ready
+          # Wait for server to be ready (use 127.0.0.1 to avoid IPv6 issues)
           for i in {1..60}; do
-            if curl -sf http://localhost:3042/api/health > /dev/null 2>&1; then
+            if curl -sf http://127.0.0.1:3042/api/health > /dev/null 2>&1; then
               echo "Server is ready"
               break
             fi

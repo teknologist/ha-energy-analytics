@@ -8,7 +8,8 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
   use: {
-    baseURL: 'http://localhost:3042',
+    // Use 127.0.0.1 instead of localhost for CI to avoid IPv6 resolution issues
+    baseURL: process.env.CI ? 'http://127.0.0.1:3042' : 'http://localhost:3042',
     trace: 'on-first-retry',
   },
   projects: [
