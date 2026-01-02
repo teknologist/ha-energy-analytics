@@ -1,0 +1,55 @@
+# Dependencies
+**/node_modules/
+
+# Build outputs
+dist/
+build/
+.output/
+
+# Environment files (may contain secrets)
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+
+# Database
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pino-pretty.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE/Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Testing
+coverage/
+.nyc_output/
+
+# Cache
+.cache/
+.parcel-cache/
+.vite/
+
+# Platformatic
+.platformatic/
+
+# Temporary files
+tmp/
+temp/
+*.tmp

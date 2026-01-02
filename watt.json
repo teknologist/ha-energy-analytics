@@ -1,0 +1,13 @@
+{
+  "$schema": "https://schemas.platformatic.dev/@platformatic/runtime/3.0.0.json",
+  "autoload": {
+    "path": "./web",
+    "exclude": []
+  },
+  "entrypoint": "api",
+  "server": {
+    "hostname": "0.0.0.0",
+    "port": "{PORT}"
+  },
+  "watch": true
+}

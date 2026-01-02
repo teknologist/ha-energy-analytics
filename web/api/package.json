@@ -1,0 +1,14 @@
+{
+  "name": "api",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "platformatic start"
+  },
+  "dependencies": {
+    "@platformatic/service": "^3.29.1",
+    "ws": "^8.18.3",
+    "better-sqlite3": "^12.5.0"
+  }
+}

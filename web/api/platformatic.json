@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schemas.platformatic.dev/@platformatic/service/3.0.0.json",
+  "server": {
+    "hostname": "127.0.0.1",
+    "port": 0,
+    "logger": {
+      "level": "info"
+    }
+  },
+  "service": {
+    "openapi": {
+      "info": {
+        "title": "Energy Dashboard API",
+        "description": "API for fetching and analyzing Home Assistant energy data",
+        "version": "1.0.0"
+      }
+    }
+  },
+  "plugins": {
+    "paths": [
+      { "path": "./plugins/home-assistant.js" },
+      { "path": "./plugins/database.js" },
+      { "path": "./routes", "encapsulate": false }
+    ]
+  },
+  "watch": true
+}

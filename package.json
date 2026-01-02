@@ -1,0 +1,13 @@
+{
+  "name": "energy-dashboard",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "wattpm dev",
+    "start": "wattpm start",
+    "build": "wattpm build"
+  },
+  "devDependencies": {
+    "wattpm": "^3.29.1"
+  }
+}

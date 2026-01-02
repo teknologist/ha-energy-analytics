@@ -1,0 +1,6 @@
+{
+  "$schema": "https://schemas.platformatic.dev/@platformatic/vite/3.0.0.json",
+  "application": {
+    "basePath": "/dashboard"
+  }
+}
