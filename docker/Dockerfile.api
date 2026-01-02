@@ -76,7 +76,6 @@ RUN npm ci --omit=dev
 WORKDIR /app
 COPY --chown=nodejs:nodejs --from=builder /build/web/api/routes ./web/api/routes
 COPY --chown=nodejs:nodejs --from=builder /build/web/api/plugins ./web/api/plugins
-COPY --chown=nodejs:nodejs --from=builder /build/web/api/lib ./web/api/lib
 COPY --chown=nodejs:nodejs --from=builder /build/web/frontend/dist ./web/frontend/dist
 COPY --chown=nodejs:nodejs --from=builder /build/web/frontend/vite.config.js ./web/frontend/
 COPY --chown=nodejs:nodejs --from=builder /build/web/frontend/index.html ./web/frontend/
