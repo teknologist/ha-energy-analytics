@@ -18,9 +18,12 @@
   },
   "plugins": {
     "paths": [
-      { "path": "./plugins/home-assistant.js" },
-      { "path": "./plugins/mongodb.js" },
-      { "path": "./plugins/questdb.js" },
+      { "path": "../../runtime-plugins/mongodb.js", "encapsulate": false },
+      { "path": "../../runtime-plugins/questdb.js", "encapsulate": false },
+      {
+        "path": "../../runtime-plugins/home-assistant.js",
+        "encapsulate": false
+      },
       { "path": "./routes", "encapsulate": false }
     ]
   },

@@ -38,7 +38,7 @@ export default async function rootRoutes(fastify, options) {
 
       const response = {
         status: isHealthy ? 'ok' : 'degraded',
-        homeAssistant: fastify.ha?.connected || false,
+        homeAssistant: fastify.ha?.isConnected() || false,
         mongodb: mongoHealth.healthy,
         questdb: questdbConnected,
         timestamp: new Date().toISOString(),
@@ -74,7 +74,7 @@ export default async function rootRoutes(fastify, options) {
           memory: process.memoryUsage(),
         },
         homeAssistant: {
-          connected: fastify.ha?.connected || false,
+          connected: fastify.ha?.isConnected() || false,
           url: process.env.HA_URL || 'not configured',
         },
         database: {
