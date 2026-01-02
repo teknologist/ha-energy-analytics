@@ -16,21 +16,26 @@ flowchart TB
 
     subgraph Plugins["API Plugins"]
         HA["home-assistant.js"]
-        DB["database.js"]
+        Mongo["mongodb.js"]
+        QDB["questdb.js"]
         Recorder["event-recorder.js"]
     end
 
     API --> HA
-    API --> DB
+    API --> Mongo
+    API --> QDB
     API --> Recorder
 
-    Database[(SQLite/PostgreSQL)]
+    MongoDB[(MongoDB)]
+    QuestDB[(QuestDB)]
     HomeAssistant[Home Assistant]
 
-    DB --> Database
+    Mongo --> MongoDB
+    QDB --> QuestDB
     HA <--> HomeAssistant
     Recorder --> HA
-    Recorder --> DB
+    Recorder --> Mongo
+    Recorder --> QDB
 ```
 
 ## Data Flow
@@ -69,7 +74,7 @@ flowchart LR
 ## Features
 
 - **Real-time sync** from Home Assistant via WebSocket API
-- **Local caching** with SQLite for fast queries
+- **Dual database**: MongoDB (app state) + QuestDB (time-series)
 - **Multiple aggregations**: hourly, daily, monthly
 - **Interactive charts** with Recharts
 - **Entity auto-discovery** for energy/power sensors
@@ -77,7 +82,8 @@ flowchart LR
 
 ## Prerequisites
 
-- Node.js 20+
+- Node.js 22.19+ (Platformatic Watt requirement)
+- Docker (for MongoDB and QuestDB)
 - Home Assistant with long-lived access token
 - Energy sensors configured in Home Assistant
 
@@ -106,7 +112,10 @@ Required environment variables:
 | `HA_URL` | Home Assistant URL (e.g., `192.168.1.100:8123`) |
 | `HA_TOKEN` | Long-lived access token from HA |
 | `PORT` | Server port (default: 3042) |
-| `DATABASE_PATH` | SQLite database path (default: `./data/energy.db`) |
+| `MONGODB_URI` | MongoDB connection string (default: `mongodb://localhost:27017/energy_dashboard`) |
+| `QUESTDB_HOST` | QuestDB host (default: `localhost`) |
+| `QUESTDB_ILP_PORT` | QuestDB ILP port (default: `9009`) |
+| `QUESTDB_HTTP_PORT` | QuestDB HTTP port (default: `9000`) |
 
 3. **Get a Home Assistant token**
 
@@ -144,6 +153,14 @@ npm run dev
 | `/api/statistics/:entity_id/monthly` | GET | Get monthly summary |
 | `/api/statistics/compare` | POST | Compare multiple entities |
 
+### Real-time Subscription
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/subscription/status` | GET | Get WebSocket subscription status |
+| `/api/subscription/backfill` | POST | Force backfill for missed data |
+| `/api/readings/:entity_id` | GET | Get real-time readings |
+
 ### System
 
 | Endpoint | Method | Description |
@@ -160,9 +177,9 @@ npm run dev
 
 ## Data Flow
 
-1. **Sync**: POST to `/api/statistics/sync` fetches from HA WebSocket API
-2. **Cache**: Data stored in SQLite with proper indexing
-3. **Query**: Frontend fetches aggregated data from cached records
+1. **Sync**: Real-time events via WebSocket, backfill via HA recorder API
+2. **Store**: App state in MongoDB, time-series data in QuestDB
+3. **Query**: QuestDB for time-series aggregations, MongoDB for settings/entities
 4. **Display**: React components render charts with Recharts
 
 ## Tech Stack
@@ -170,7 +187,8 @@ npm run dev
 ### Backend
 - **Runtime**: Platformatic Watt (orchestrates API and frontend)
 - **API**: Fastify with `@platformatic/service`
-- **Database**: Knex.js with SQLite/PostgreSQL support
+- **App State**: MongoDB (settings, entities, subscriptions)
+- **Time-Series**: QuestDB (energy readings, statistics)
 - **WebSocket**: Native `ws` client for Home Assistant
 
 ### Frontend
@@ -184,52 +202,66 @@ npm run dev
 
 ### Add new aggregations
 
-Edit `web/api/plugins/database.js` to add new prepared statements:
+Use QuestDB's `SAMPLE BY` for time-series aggregations in `web/api/plugins/questdb.js`:
 
 ```javascript
-getWeeklySummary: db.prepare(`
-  SELECT 
-    entity_id,
-    strftime('%Y-%W', start_time) as week,
-    SUM(sum) as total
-  FROM energy_statistics
-  WHERE entity_id = ? AND start_time >= ? AND start_time <= ?
-  GROUP BY entity_id, strftime('%Y-%W', start_time)
-`)
+async getWeeklySummary(entityId, startTime, endTime) {
+  const sql = `
+    SELECT timestamp, sum(sum) as total
+    FROM energy_statistics
+    WHERE entity_id = '${entityId}'
+    AND timestamp BETWEEN '${startTime}' AND '${endTime}'
+    SAMPLE BY 1w
+  `;
+  return this.query(sql);
+}
 ```
 
 ### Add cost calculations
 
-Create a new route in `web/api/routes/` that joins statistics with tariff data.
+Create a new route in `web/api/routes/` that joins statistics with tariff data from MongoDB.
 
-### Scheduled sync
+### Real-time Sync (Event Recorder)
 
-Add a cron job or use node-cron to periodically call the sync endpoint:
+The `event-recorder.js` plugin automatically handles data synchronization:
 
-```javascript
-import cron from 'node-cron'
+- **WebSocket subscription**: Listens to `state_changed` events from Home Assistant
+- **Real-time ingestion**: Energy readings stored immediately as events occur
+- **Heartbeat checks**: Every 5 minutes, verifies subscription is active
+- **Hourly backfill**: Reconciles any gaps by fetching from HA recorder API
 
-// Sync every hour
-cron.schedule('0 * * * *', () => {
-  fetch('http://localhost:3042/api/statistics/sync', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ period: 'hour' })
-  })
-})
+No cron jobs needed - sync is fully automatic once connected to Home Assistant.
+
+#### Manual sync (if needed)
+
+```bash
+# Force sync for a specific period
+curl -X POST http://localhost:3042/api/statistics/sync \
+  -H 'Content-Type: application/json' \
+  -d '{"period": "hour"}'
+
+# Check subscription status
+curl http://localhost:3042/api/subscription/status
+
+# Force backfill for missed data
+curl -X POST http://localhost:3042/api/subscription/backfill
 ```
 
 ## Production
 
 ```bash
+# Using Docker Compose (recommended)
+docker compose -f docker-compose.prod.yml up -d
+
+# Or manually
 npm run build
 npm run start
 ```
 
 Consider adding:
-- Reverse proxy (nginx/Caddy)
-- Process manager (PM2)
-- Backup strategy for SQLite database
+- Reverse proxy (nginx/Caddy/Traefik)
+- MongoDB backup with mongodump
+- QuestDB data directory backups
 
 ## License
 

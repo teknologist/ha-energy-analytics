@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Energy Dashboard fetches consumption data from Home Assistant via WebSocket API, caches it in SQLite, and displays it via React charts. Uses **Platformatic Watt** as the runtime to orchestrate API and frontend services.
+Energy Dashboard fetches consumption data from Home Assistant via WebSocket API, stores app state in MongoDB and time-series data in QuestDB, and displays insights via React charts. Uses **Platformatic Watt** as the runtime to orchestrate API and frontend services.
 
 ## Documentation Standards
 
@@ -41,27 +41,33 @@ flowchart TB
 
     subgraph Plugins["API Plugins"]
         HA["home-assistant.js"]
-        DB["database.js"]
+        Mongo["mongodb.js"]
+        QDB["questdb.js"]
         Recorder["event-recorder.js"]
     end
 
     API --> HA
-    API --> DB
+    API --> Mongo
+    API --> QDB
     API --> Recorder
 
-    Database[(SQLite/PostgreSQL)]
+    MongoDB[(MongoDB)]
+    QuestDB[(QuestDB)]
     HomeAssistant[Home Assistant]
 
-    DB --> Database
+    Mongo --> MongoDB
+    QDB --> QuestDB
     HA <--> HomeAssistant
     Recorder --> HA
-    Recorder --> DB
+    Recorder --> Mongo
+    Recorder --> QDB
 ```
 
 **Services:**
 - **API** (`web/api/`): Fastify service with `@platformatic/service`
   - `plugins/home-assistant.js` - WebSocket client + event subscriptions
-  - `plugins/database.js` - Knex.js multi-DB support
+  - `plugins/mongodb.js` - Application state storage (settings, entities, subscriptions)
+  - `plugins/questdb.js` - Time-series data storage (readings, statistics)
   - `plugins/event-recorder.js` - Real-time sync + reconciliation
   - `routes/` - Auto-loaded routes (entities, statistics, realtime, settings)
 
@@ -110,7 +116,9 @@ flowchart LR
 ## Key Technical Details
 
 - All services use ES modules (`"type": "module"`)
-- SQLite tables: `energy_statistics`, `energy_readings`, `entities`, `subscription_state`, `sync_log`
+- **Node.js 22.19+** required (Platformatic Watt requirement)
+- **MongoDB collections**: `settings`, `entities`, `subscriptionState`, `syncLog`
+- **QuestDB tables**: `energy_readings`, `energy_statistics`
 - Frontend served at `/dashboard`, API at `/api/*`
 - HA WebSocket: `ws://{HA_URL}/api/websocket` with token auth
 
@@ -121,8 +129,10 @@ flowchart LR
 | `HA_URL` | Home Assistant host:port | `homeassistant.local:8123` |
 | `HA_TOKEN` | Long-lived access token | (required) |
 | `PORT` | Server port | `3042` |
-| `DATABASE_TYPE` | sqlite, postgresql, mysql | `sqlite` |
-| `DATABASE_PATH` | SQLite database path | `./data/energy.db` |
+| `MONGODB_URI` | MongoDB connection string | `mongodb://localhost:27017/energy_dashboard` |
+| `QUESTDB_HOST` | QuestDB hostname | `localhost` |
+| `QUESTDB_ILP_PORT` | QuestDB ILP ingestion port | `9009` |
+| `QUESTDB_HTTP_PORT` | QuestDB HTTP API port | `9000` |
 
 ## API Endpoints
 
@@ -137,12 +147,19 @@ flowchart LR
 
 ## Extending
 
-**Add new aggregations**: Edit `web/api/plugins/database.js`
+**Add new aggregations**: Use QuestDB's `SAMPLE BY` in `web/api/plugins/questdb.js`
 **Add new routes**: Create files in `web/api/routes/` - auto-loaded via platformatic.json
 **Add new plugins**: Create in `web/api/plugins/` and register in `platformatic.json`
 
 ## Linear Integration
 
 - **Project**: `ha-energy-analytics`
+- **Issue Prefix**: `TEK` (e.g., TEK-44, TEK-45)
 - **Assignee**: Eric
 - **Profile**: `personal`
+
+### Planning Structure
+
+- **Master Plan**: TEK-44 serves as the master implementation plan and orchestrates all issues
+- **Issue Plans**: Each individual issue contains its own detailed implementation plan
+- **No separate plan files**: Update the Linear issues directly when plans need modification
