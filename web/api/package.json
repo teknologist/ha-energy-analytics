@@ -4,11 +4,14 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "start": "platformatic start"
+    "start": "platformatic start",
+    "test": "node --test test/**/*.test.js"
   },
   "dependencies": {
     "@platformatic/service": "^3.29.1",
-    "ws": "^8.18.3",
-    "better-sqlite3": "^12.5.0"
+    "@questdb/nodejs-client": "^4.2.0",
+    "fastify-plugin": "^5.1.0",
+    "mongodb": "^6.21.0",
+    "ws": "^8.18.3"
   }
 }

@@ -19,7 +19,8 @@
   "plugins": {
     "paths": [
       { "path": "./plugins/home-assistant.js" },
-      { "path": "./plugins/database.js" },
+      { "path": "./plugins/mongodb.js" },
+      { "path": "./plugins/questdb.js" },
       { "path": "./routes", "encapsulate": false }
     ]
   },

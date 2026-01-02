@@ -1,0 +1,63 @@
+# Docker Compose Override Example
+# This file demonstrates how to customize the Docker setup for local development
+# Copy to docker-compose.override.yml and modify as needed
+#
+# Note: docker-compose.override.yml is automatically loaded by Docker Compose
+# and its settings override those in docker-compose.yml
+
+services:
+  # Example: Add port mappings for debugging
+  api:
+    # Enable debug port for Node.js inspector
+    # ports:
+    #   - "9229:9229"
+    # command: ["node", "--inspect=0.0.0.0:9229", "node_modules/.bin/wattpm", "start"]
+
+    # Mount source code for hot reload (development only)
+    # volumes:
+    #   - ./web/api:/app/web/api
+    #   - ./web/frontend:/app/web/frontend
+    #   - /app/web/api/node_modules
+    #   - /app/web/frontend/node_modules
+
+    # Override environment variables
+    environment:
+      - LOG_LEVEL=debug
+      # - NODE_ENV=development
+
+  # Example: MongoDB with authentication (recommended for production)
+  # mongodb:
+  #   environment:
+  #     - MONGO_INITDB_ROOT_USERNAME=admin
+  #     - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:-changeme}
+  #   # Note: Update MONGODB_URI in .env to include credentials:
+  #   # MONGODB_URI=mongodb://admin:changeme@mongodb:27017/energy_dashboard?authSource=admin
+
+  # Example: MongoDB with custom configuration
+  # mongodb:
+  #   command: ["mongod", "--logappend", "--logpath", "/var/log/mongodb/mongod.log"]
+  #   environment:
+  #     - MONGO_LOG_DIR=/var/log/mongodb
+
+  # Example: QuestDB with verbose logging
+  # questdb:
+  #   environment:
+  #     - QDB_LOG_LEVEL=DEBUG
+
+# Example: Add a development-only service
+# services:
+#   mongo-express:
+#     image: mongo-express:latest
+#     container_name: energy-dashboard-mongo-express
+#     restart: unless-stopped
+#     depends_on:
+#       - mongodb
+#     environment:
+#       ME_CONFIG_MONGODB_SERVER: mongodb
+#       ME_CONFIG_MONGODB_PORT: 27017
+#       ME_CONFIG_BASICAUTH_USERNAME: admin
+#       ME_CONFIG_BASICAUTH_PASSWORD: admin
+#     ports:
+#       - "8081:8081"
+#     networks:
+#       - energy-network

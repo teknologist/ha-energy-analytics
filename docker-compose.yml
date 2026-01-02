@@ -1,0 +1,126 @@
+services:
+  # MongoDB - Application state storage
+  mongodb:
+    image: mongo:6.0.27
+    container_name: energy-dashboard-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: energy_dashboard
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+    networks:
+      - energy-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # QuestDB - Time-series data storage
+  questdb:
+    image: questdb/questdb:9.2.3
+    container_name: energy-dashboard-questdb
+    restart: unless-stopped
+    environment:
+      # Enable InfluxDB Line Protocol (ILP) for high-performance ingestion
+      QDB_LINE_TCP_ENABLED: "true"
+      QDB_LINE_TCP_NET_BIND_TO: "0.0.0.0:9009"
+      # Performance tuning
+      QDB_SHARED_WORKER_COUNT: "2"
+      QDB_HTTP_WORKER_COUNT: "2"
+    ports:
+      - "9000:9000"   # HTTP/REST API & Web Console
+      - "9003:9003"   # Health check endpoint (Min HTTP server)
+      - "9009:9009"   # InfluxDB Line Protocol (ILP)
+      - "8812:8812"   # PostgreSQL wire protocol
+    volumes:
+      - questdb_data:/var/lib/questdb
+    networks:
+      - energy-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9003/ || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Energy Dashboard API
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    container_name: energy-dashboard-api
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      questdb:
+        condition: service_healthy
+    environment:
+      # Server
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: ${PORT:-3042}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+      # MongoDB (Docker service name as host)
+      MONGODB_URI: mongodb://mongodb:27017/energy_dashboard
+
+      # QuestDB (Docker service name as host)
+      QUESTDB_HOST: questdb
+      QUESTDB_ILP_PORT: ${QUESTDB_ILP_PORT:-9009}
+      QUESTDB_HTTP_PORT: ${QUESTDB_HTTP_PORT:-9000}
+
+      # Home Assistant
+      HA_URL: ${HA_URL:-homeassistant.local:8123}
+      HA_TOKEN: ${HA_TOKEN}
+    ports:
+      - "${PORT:-3042}:3042"
+    volumes:
+      # Mount data directory for local state (optional)
+      - api_data:/app/data
+    networks:
+      - energy-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3042/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+networks:
+  energy-network:
+    name: energy-network
+    driver: bridge
+
+volumes:
+  mongodb_data:
+    name: energy-dashboard-mongodb-data
+    driver: local
+  mongodb_config:
+    name: energy-dashboard-mongodb-config
+    driver: local
+  questdb_data:
+    name: energy-dashboard-questdb-data
+    driver: local
+  api_data:
+    name: energy-dashboard-api-data
+    driver: local
