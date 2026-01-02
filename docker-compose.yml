@@ -39,6 +39,7 @@ services:
       QDB_HTTP_WORKER_COUNT: "2"
     ports:
       - "9000:9000"   # HTTP/REST API & Web Console
+      - "9003:9003"   # Health check endpoint (Min HTTP server)
       - "9009:9009"   # InfluxDB Line Protocol (ILP)
       - "8812:8812"   # PostgreSQL wire protocol
     volumes:
@@ -46,11 +47,11 @@ services:
     networks:
       - energy-network
     healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 9000 || exit 1"]
-      interval: 10s
-      timeout: 10s
-      retries: 10
-      start_period: 30s
+      test: ["CMD-SHELL", "curl -f http://localhost:9003/ || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 40s
     logging:
       driver: "json-file"
       options:
