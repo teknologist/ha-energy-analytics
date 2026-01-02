@@ -103,8 +103,8 @@ flowchart LR
         Startup["Startup Gap<br/>Recovery"]
     end
 
-    subgraph AppDB["SQLite/PostgreSQL"]
-        SubState["subscription_state<br/>(lifecycle)"]
+    subgraph AppDB["MongoDB"]
+        SubState["subscriptionState<br/>(lifecycle)"]
         Entities["entities<br/>(tracked sensors)"]
         Settings["settings<br/>(configuration)"]
     end
@@ -644,13 +644,15 @@ export default fp(questdbPlugin, { name: 'questdb' });
 
 ---
 
-## Home Assistant Integration
+## Home Assistant Integration - Runtime Level
 
 ### Auto-Discovery of Entities
 
 The application automatically discovers energy-related entities from Home Assistant.
 
-**File: `web/api/plugins/home-assistant.js`**
+**File: `runtime-plugins/home-assistant.js`**
+
+> **Note**: This plugin is registered at the Watt runtime level with `encapsulate: false`, making `fastify.ha` available to all services (API and Recorder).
 ```javascript
 import fp from 'fastify-plugin';
 import WebSocket from 'ws';
@@ -847,9 +849,11 @@ export default fp(homeAssistantPlugin, {
 
 ---
 
-## Event Recorder Plugin (Real-Time Sync)
+## Event Recorder Service (Real-Time Sync)
 
-The event recorder plugin subscribes to Home Assistant `state_changed` events via WebSocket and records raw energy readings in real-time. It also handles reconciliation to ensure data integrity.
+The Recorder runs as an **independent Platformatic Watt service** (`web/recorder/`) that subscribes to Home Assistant `state_changed` events via WebSocket and records raw energy readings in real-time. It accesses shared plugins (`fastify.mongo`, `fastify.questdb`, `fastify.ha`) from the runtime level.
+
+> **Architecture Change**: The event recorder was moved from an API plugin to an independent service to provide better separation of concerns, independent scaling, and cleaner architecture for real-time event handling. See `specs/platformatic-watt-shared-db-plugin.md` for the shared plugin pattern.
 
 ### Architecture
 
@@ -900,13 +904,17 @@ sequenceDiagram
     end
 ```
 
-### Plugin Implementation
+### Service Implementation
 
-**File: `web/api/plugins/event-recorder.js`**
+**File: `web/recorder/plugins/event-recorder.js`**
+
+> **Note**: The Recorder service accesses shared plugins from the runtime level via `fastify.ha`, `fastify.mongo`, and `fastify.questdb`.
+
 ```javascript
 import fp from 'fastify-plugin';
 
 async function eventRecorderPlugin(fastify, options) {
+  // Access shared plugins from runtime level
   const { ha, mongo, questdb } = fastify;
 
   if (!ha || !mongo || !questdb) {
@@ -1926,6 +1934,22 @@ function SettingsPage() {
 ```json
 {
   "$schema": "https://schemas.platformatic.dev/@platformatic/runtime/3.0.0.json",
+  "plugins": {
+    "paths": [
+      {
+        "path": "./runtime-plugins/mongodb.js",
+        "encapsulate": false
+      },
+      {
+        "path": "./runtime-plugins/questdb.js",
+        "encapsulate": false
+      },
+      {
+        "path": "./runtime-plugins/home-assistant.js",
+        "encapsulate": false
+      }
+    ]
+  },
   "autoload": {
     "path": "./web",
     "exclude": []
@@ -1938,6 +1962,8 @@ function SettingsPage() {
   "watch": true
 }
 ```
+
+> **Note**: The `encapsulate: false` option ensures decorators (`fastify.mongo`, `fastify.questdb`, `fastify.ha`) propagate to all child services. See `specs/platformatic-watt-shared-db-plugin.md` for details.
 
 **File: `package.json`**
 ```json
@@ -2034,18 +2060,12 @@ Open http://localhost:3042/dashboard
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `PORT` | Server port | `3042` |
-| `DATABASE_TYPE` | Database type (sqlite/postgresql/mysql/questdb) | `sqlite` |
-| `DATABASE_PATH` | SQLite database path | `./data/energy.db` |
-| `DATABASE_HOST` | Database host (PG/MySQL) | `localhost` |
-| `DATABASE_PORT` | Database port | `5432` (PG) / `3306` (MySQL) |
-| `DATABASE_NAME` | Database name | `energy_dashboard` |
-| `DATABASE_USER` | Database user | `energy` |
-| `DATABASE_PASSWORD` | Database password | - |
+| `MONGODB_URI` | MongoDB connection string | `mongodb://localhost:27017/energy_dashboard` |
 | `QUESTDB_HOST` | QuestDB host | `localhost` |
-| `QUESTDB_ILP_PORT` | QuestDB ILP port | `9009` |
-| `QUESTDB_HTTP_PORT` | QuestDB HTTP port | `9000` |
-| `HA_URL` | Home Assistant URL (fallback) | `homeassistant.local:8123` |
-| `HA_TOKEN` | HA access token (fallback) | - |
+| `QUESTDB_ILP_PORT` | QuestDB ILP port (ingestion) | `9009` |
+| `QUESTDB_HTTP_PORT` | QuestDB HTTP port (queries) | `9000` |
+| `HA_URL` | Home Assistant host:port | `homeassistant.local:8123` |
+| `HA_TOKEN` | Long-lived access token | (required) |
 
 ---
 
