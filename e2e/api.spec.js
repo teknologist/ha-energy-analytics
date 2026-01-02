@@ -58,17 +58,16 @@ test.describe('API Endpoints', () => {
       }
     });
 
-    test('should handle settings update', async ({ request }) => {
-      const testSettings = {
-        refreshInterval: 60000,
-        retentionDays: 90,
-      };
-
-      const response = await request.put('/api/settings', {
-        data: testSettings,
+    test('should handle settings update (POST to tracked-entities)', async ({
+      request,
+    }) => {
+      const response = await request.post('/api/settings/tracked-entities', {
+        data: {
+          trackedEntities: ['sensor.test'],
+        },
       });
 
-      // May succeed or fail depending on DB state
+      // May fail if DB not set up or entity invalid
       expect([200, 400, 500]).toContain(response.status());
     });
   });
@@ -100,8 +99,8 @@ test.describe('API Endpoints', () => {
         },
       });
 
-      // Sync may fail if HA not connected or entity doesn't exist
-      expect([200, 400, 500]).toContain(response.status());
+      // Sync may fail if HA not connected (503), entity invalid (400/404), or DB error (500)
+      expect([200, 400, 404, 500, 503]).toContain(response.status());
     });
   });
 
