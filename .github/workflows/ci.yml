@@ -98,6 +98,8 @@ jobs:
       - name: Start dev server
         run: |
           mkdir -p logs
+          # Set PORT to match expected test port
+          export PORT=3042
           nohup npm run dev > logs/server.log 2>&1 &
           echo $! > logs/server.pid
           # Wait for server to be ready (use 127.0.0.1 to avoid IPv6 issues)
