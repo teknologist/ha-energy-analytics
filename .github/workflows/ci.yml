@@ -130,8 +130,11 @@ jobs:
           mkdir -p logs coverage/e2e
           # Set PORT to match expected test port
           export PORT=3042
+          # Set NODE_V8_COVERAGE environment variable for c8
+          export NODE_V8_COVERAGE=coverage/e2e
           # Start server with c8 coverage instrumentation
-          nohup npx c8 --all --include='web/api/**/*.js' --include='runtime-plugins/mongodb.js' --include='runtime-plugins/questdb.js' --exclude='**/*.test.js' --exclude='**/test/**' --exclude='e2e/**' --exclude='web/frontend/**' --exclude='runtime-plugins/home-assistant.js' --reporter=json --reporter=lcov --reports-directory=./coverage/e2e wattpm dev > logs/server.log 2>&1 &
+          # Use --clean to ensure fresh coverage, --temp-directory for v8 coverage files
+          nohup npx c8 --clean --all --temp-directory=coverage/e2e/tmp --include='web/api/**/*.js' --include='runtime-plugins/mongodb.js' --include='runtime-plugins/questdb.js' --exclude='**/*.test.js' --exclude='**/test/**' --exclude='e2e/**' --exclude='web/frontend/**' --exclude='runtime-plugins/home-assistant.js' --reporter=json --reporter=lcov --reports-directory=./coverage/e2e wattpm dev > logs/server.log 2>&1 &
           echo $! > logs/server.pid
           # Wait for server to be ready (use 127.0.0.1 to avoid IPv6 issues)
           for i in {1..60}; do
@@ -161,9 +164,16 @@ jobs:
             pid=$(cat logs/server.pid)
             if ps -p $pid > /dev/null; then
               echo "Stopping server (PID: $pid)"
-              kill $pid
+              # Send SIGINT (signal 2) to c8 so it writes coverage report
+              kill -INT $pid
               # Wait for process to terminate and coverage to be written
               sleep 5
+              # If still running, force kill
+              if ps -p $pid > /dev/null; then
+                echo "Process still running, force killing..."
+                kill -9 $pid
+                sleep 2
+              fi
             fi
           fi
           # Check if E2E coverage was generated
