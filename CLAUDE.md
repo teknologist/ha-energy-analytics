@@ -213,12 +213,23 @@ Platformatic Watt's built-in scheduler handles recurring tasks (configured in `w
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/entities` | GET | List energy entities |
-| `/api/statistics/:id` | GET | Get hourly statistics |
+| `/api/entities` | GET | List tracked energy entities |
+| `/api/entities/:entity_id` | GET | Get single entity details |
+| `/api/entities/:entity_id/tracked` | PATCH | Toggle entity tracking |
+| `/api/statistics/:entity_id` | GET | Get hourly/daily statistics |
 | `/api/statistics/sync` | POST | Manual sync from HA |
-| `/api/readings/:id` | GET | Real-time readings |
+| `/api/insights/top-consumers` | GET | Get top consuming entities |
+| `/api/insights/peak` | GET | Get peak usage periods |
+| `/api/insights/patterns` | GET | Get consumption patterns |
+| `/api/insights/breakdown` | GET | Get consumption breakdown |
+| `/api/insights/timeline` | GET | Get consumption timeline |
+| `/api/readings/:entity_id` | GET | Real-time readings |
 | `/api/subscription/status` | GET | Event subscription status |
 | `/api/subscription/backfill` | POST | Force backfill |
+| `/api/health` | GET | Health check |
+| `/api/status` | GET | System status |
+| `/api/settings` | GET | Get all settings |
+| `/api/settings/tracked-entities` | POST | Update tracked entities |
 
 ## Directory Structure
 

@@ -514,6 +514,13 @@ async function questdbPlugin(fastify, options) {
     isConnected: isQuestDBConnected,
     query,
     config,
+    // Expose sanitization helpers for use by other routes
+    sanitize: {
+      entityId: sanitizeEntityId,
+      timestamp: sanitizeTimestamp,
+      limit: sanitizeLimit,
+      period: sanitizePeriod,
+    },
   };
 
   fastify.decorate('questdb', questdb);

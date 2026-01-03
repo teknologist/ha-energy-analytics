@@ -20,7 +20,7 @@ export default defineConfig({
       '**/node_modules/**',
       'web/frontend/**',
       'e2e/**',
-      '**/test/**', // Exclude test directories (like web/api/test/)
+      'web/api/test/**', // Uses node:test, run separately
     ],
   },
 });

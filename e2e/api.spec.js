@@ -30,7 +30,10 @@ test.describe('API Endpoints', () => {
       // May return 200 with empty array or error if no entities configured
       if (response.ok()) {
         const body = await response.json();
-        expect(Array.isArray(body)).toBeTruthy();
+        // New canonical response format: { success: true, data: { entities: [...] } }
+        expect(body.success).toBeTruthy();
+        expect(body.data).toBeDefined();
+        expect(Array.isArray(body.data.entities)).toBeTruthy();
       } else {
         // If error, should be a proper error response
         expect(response.status()).toBeGreaterThanOrEqual(400);

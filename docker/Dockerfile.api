@@ -18,6 +18,7 @@ COPY package*.json ./
 # Copy workspace package files
 COPY web/api/package*.json ./web/api/
 COPY web/frontend/package*.json ./web/frontend/
+COPY web/recorder/package*.json ./web/recorder/
 
 # Install all dependencies (including dev dependencies for build)
 RUN npm ci
@@ -27,6 +28,9 @@ WORKDIR /build/web/api
 RUN npm ci
 
 WORKDIR /build/web/frontend
+RUN npm ci
+
+WORKDIR /build/web/recorder
 RUN npm ci
 
 # Copy application source
@@ -61,6 +65,11 @@ COPY --chown=nodejs:nodejs web/api/package*.json ./web/api/
 COPY --chown=nodejs:nodejs web/api/platformatic.json ./web/api/
 COPY --chown=nodejs:nodejs web/frontend/package*.json ./web/frontend/
 COPY --chown=nodejs:nodejs web/frontend/watt.json ./web/frontend/
+COPY --chown=nodejs:nodejs web/recorder/package*.json ./web/recorder/
+COPY --chown=nodejs:nodejs web/recorder/platformatic.json ./web/recorder/
+
+# Copy runtime plugins (shared across services)
+COPY --chown=nodejs:nodejs runtime-plugins ./runtime-plugins
 
 # Install production dependencies only
 RUN npm ci --omit=dev
@@ -72,6 +81,9 @@ RUN npm ci --omit=dev
 WORKDIR /app/web/frontend
 RUN npm ci --omit=dev
 
+WORKDIR /app/web/recorder
+RUN npm ci --omit=dev
+
 # Copy application code from builder
 WORKDIR /app
 COPY --chown=nodejs:nodejs --from=builder /build/web/api/routes ./web/api/routes
@@ -79,6 +91,8 @@ COPY --chown=nodejs:nodejs --from=builder /build/web/api/plugins ./web/api/plugi
 COPY --chown=nodejs:nodejs --from=builder /build/web/frontend/dist ./web/frontend/dist
 COPY --chown=nodejs:nodejs --from=builder /build/web/frontend/vite.config.js ./web/frontend/
 COPY --chown=nodejs:nodejs --from=builder /build/web/frontend/index.html ./web/frontend/
+COPY --chown=nodejs:nodejs --from=builder /build/web/recorder/plugins ./web/recorder/plugins
+COPY --chown=nodejs:nodejs --from=builder /build/web/recorder/routes ./web/recorder/routes
 
 # Create data directory for local state (if needed)
 RUN mkdir -p /app/data && chown -R nodejs:nodejs /app/data

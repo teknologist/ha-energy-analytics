@@ -2,7 +2,7 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
 import Fastify from 'fastify';
 import { MongoClient } from 'mongodb';
-import mongodbPlugin from '../../plugins/mongodb.js';
+import mongodbPlugin from '../../../../runtime-plugins/mongodb.js';
 
 // Use a test database
 const TEST_MONGODB_URI =
