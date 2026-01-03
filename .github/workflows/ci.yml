@@ -222,14 +222,16 @@ jobs:
           echo "Unit coverage lines:"
           wc -l coverage/backup/unit.lcov
           echo "E2E coverage lines:"
-          if [ -f coverage/e2e/lcov.info ]; then
+          if [ -f coverage/e2e/lcov.info ] && [ -s coverage/e2e/lcov.info ]; then
             wc -l coverage/e2e/lcov.info
             # Install lcov for proper merge (deduplicates and combines coverage)
             sudo apt-get install -y lcov > /dev/null 2>&1
             # Merge lcov files properly - this combines coverage for same files
+            # Use --ignore-errors to handle empty or malformed files gracefully
             lcov --add-tracefile coverage/backup/unit.lcov \
                  --add-tracefile coverage/e2e/lcov.info \
                  --output-file coverage/lcov.info \
+                 --ignore-errors empty \
                  --rc lcov_branch_coverage=1
             echo "Coverage merged successfully"
             echo "Merged coverage lines:"
@@ -238,7 +240,7 @@ jobs:
             echo "Files in merged coverage:"
             grep "^SF:" coverage/lcov.info | sort | uniq -c
           else
-            echo "E2E coverage not found, using unit coverage only"
+            echo "E2E coverage not found or empty, using unit coverage only"
             cp coverage/backup/unit.lcov coverage/lcov.info
           fi
 
