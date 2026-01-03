@@ -130,11 +130,18 @@ jobs:
           mkdir -p logs coverage/e2e
           # Set PORT to match expected test port
           export PORT=3042
-          # Set NODE_V8_COVERAGE environment variable for c8
-          export NODE_V8_COVERAGE=coverage/e2e
-          # Start server with c8 coverage instrumentation
-          # Use --clean to ensure fresh coverage, --temp-directory for v8 coverage files
-          nohup npx c8 --clean --all --temp-directory=coverage/e2e/tmp --include='web/api/**/*.js' --include='runtime-plugins/mongodb.js' --include='runtime-plugins/questdb.js' --exclude='**/*.test.js' --exclude='**/test/**' --exclude='e2e/**' --exclude='web/frontend/**' --exclude='runtime-plugins/home-assistant.js' --reporter=json --reporter=lcov --reports-directory=./coverage/e2e wattpm dev > logs/server.log 2>&1 &
+          # Create a wrapper script to properly handle signals
+          cat > logs/start-server.sh << 'EOF'
+            # Set NODE_V8_COVERAGE environment variable for c8
+            export NODE_V8_COVERAGE=coverage/e2e
+            # Trap SIGINT and SIGTERM to generate coverage report
+            trap 'exit 0' INT TERM
+            # Run server with c8 coverage
+            npx c8 --clean --all --temp-directory=coverage/e2e/tmp --include='web/api/**/*.js' --include='runtime-plugins/mongodb.js' --include='runtime-plugins/questdb.js' --exclude='**/*.test.js' --exclude='**/test/**' --exclude='e2e/**' --exclude='web/frontend/**' --exclude='runtime-plugins/home-assistant.js' --reporter=json --reporter=lcov --reports-directory=./coverage/e2e wattpm dev
+          EOF
+          chmod +x logs/start-server.sh
+          # Start server in background with proper signal handling
+          logs/start-server.sh > logs/server.log 2>&1 &
           echo $! > logs/server.pid
           # Wait for server to be ready (use 127.0.0.1 to avoid IPv6 issues)
           for i in {1..60}; do
