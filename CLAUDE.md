@@ -25,6 +25,58 @@ npm run start
 npm install
 cd web/api && npm install && cd ../..
 cd web/frontend && npm install && cd ../..
+
+# Testing
+npm run test:unit      # Run all unit/integration tests
+npm run test:coverage  # Run tests with coverage report
+npm run test:e2e       # Run E2E tests (requires app running)
+```
+
+## Testing
+
+**All tests MUST use Vitest** - no node:test, jest, or other frameworks.
+
+### Test Structure
+
+| Test Type | Location | Description |
+|-----------|----------|-------------|
+| Unit tests | `web/api/lib/*.test.js` | Pure unit tests for utilities |
+| Integration tests | `web/api/test/plugins/*.test.js` | Plugin tests (require MongoDB/QuestDB) |
+| E2E tests | `e2e/*.spec.js` | Playwright API tests |
+
+### Coverage Target
+
+- **Minimum 80% statement coverage** on testable code
+- Coverage config excludes:
+  - `home-assistant.js` (requires real HA instance)
+  - `web/api/routes/**` (covered by E2E tests)
+
+### Writing Tests
+
+```javascript
+// Use vitest imports
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+
+// For conditional skipping (e.g., when DB unavailable)
+describe.skipIf(!DB_AVAILABLE)('Plugin Tests', () => {
+  // tests...
+});
+```
+
+### Running Tests
+
+```bash
+# Start databases first (for integration tests)
+docker compose up -d mongodb questdb
+
+# Run all tests
+npm run test:unit
+
+# Run with coverage
+npm run test:coverage
+
+# Run E2E (requires app running on port 3042)
+npm run test:e2e
 ```
 
 ## Architecture
@@ -40,21 +92,15 @@ flowchart TB
 
         Runtime["localhost:3042"]
         API["API Service /api/*"]
-        Recorder["Recorder Service"]
         Frontend["Frontend /dashboard/*"]
 
         Runtime --> API
-        Runtime --> Recorder
         Runtime --> Frontend
     end
 
     API --> Mongo
     API --> QDB
     API --> HA
-
-    Recorder --> Mongo
-    Recorder --> QDB
-    Recorder --> HA
 
     MongoDB[(MongoDB)]
     QuestDB[(QuestDB)]
@@ -75,15 +121,12 @@ flowchart TB
   - `routes/` - Auto-loaded routes (entities, statistics, realtime, settings)
   - Accesses shared plugins via `fastify.mongo`, `fastify.questdb`, `fastify.ha`
 
-- **Recorder** (`web/recorder/`): Independent event recording service
-  - `plugins/event-recorder.js` - Real-time sync + reconciliation
-  - Subscribes to Home Assistant state_changed events
-  - Handles heartbeat checks and hourly backfill
-
 - **Frontend** (`web/frontend/`): React + Vite served at `/dashboard`
   - Uses React Query, Recharts, ShadCN UI (Radix + Tailwind)
   - `hooks/useEnergy.js` - Data fetching hooks
   - `lib/api.js` - API client
+
+> **Note**: The Recorder service (`web/recorder/`) is planned but not yet implemented. It is excluded from autoload in `watt.json`.
 
 ## Data Flow
 
@@ -236,19 +279,20 @@ Platformatic Watt's built-in scheduler handles recurring tasks (configured in `w
 ```
 energy-tracker/
 ├── watt.json                    # Runtime config with shared plugins
+├── vitest.config.js             # Test configuration
+├── playwright.config.js         # E2E test configuration
 ├── runtime-plugins/             # Shared plugins (all services access)
 │   ├── mongodb.js               # fastify.mongo decorator
 │   ├── questdb.js               # fastify.questdb decorator
 │   └── home-assistant.js        # fastify.ha decorator
 ├── web/
-│   ├── api/                     # API Service (routes only)
+│   ├── api/                     # API Service (routes + tests)
 │   │   ├── platformatic.json
-│   │   └── routes/
-│   ├── recorder/                # Recorder Service (event handling)
-│   │   ├── platformatic.json
-│   │   └── plugins/
-│   │       └── event-recorder.js
+│   │   ├── routes/
+│   │   ├── lib/                 # Utilities + unit tests
+│   │   └── test/                # Integration tests
 │   └── frontend/                # React frontend
+├── e2e/                         # Playwright E2E tests
 └── docker/
 ```
 
