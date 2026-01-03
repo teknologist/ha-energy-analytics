@@ -65,3 +65,4 @@ docker-compose.override.yml
 /.coverage-e2e-new-report
 /.coverage-e2e-report
 ralph-loop.*
+specs
