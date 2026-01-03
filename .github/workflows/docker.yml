@@ -7,12 +7,6 @@ on:
       - 'docker/**'
       - 'Dockerfile*'
       - '.dockerignore'
-  pull_request:
-    branches: [ main, develop ]
-    paths:
-      - 'docker/**'
-      - 'Dockerfile*'
-      - '.dockerignore'
 
 env:
   REGISTRY: ghcr.io
