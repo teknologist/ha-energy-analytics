@@ -1,155 +1,139 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { RefreshCw } from 'lucide-react';
+import { Zap, TrendingUp, Activity, Flame } from 'lucide-react';
 import {
-  useEntities,
-  useStatistics,
-  useDailySummary,
-  useSyncData,
+  useTopConsumers,
+  usePeakConsumption,
+  useConsumptionPatterns,
+  useEntityBreakdown,
+  useConsumptionTimeline,
+  useHeatmapData,
 } from '@/hooks/useEnergy';
-import { getTimeRange, formatNumber } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { EntitySelector } from '@/components/EntitySelector';
-import { StatsCard } from '@/components/StatsCard';
-import { EnergyChart } from '@/components/EnergyChart';
+import { formatNumber } from '@/lib/utils';
+import { PeriodSelector } from '@/components/PeriodSelector';
+import { KPICard } from '@/components/KPICard';
+import { ConsumptionChart } from '@/components/ConsumptionChart';
+import { BreakdownChart } from '@/components/BreakdownChart';
+import { HeatmapChart } from '@/components/HeatmapChart';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 export const Route = createFileRoute('/')({
-  component: DashboardPage,
+  component: DashboardWithErrorBoundary,
 });
 
-const timeRangeOptions = [
-  { value: '24h', label: 'Last 24 hours' },
-  { value: '7d', label: 'Last 7 days' },
-  { value: '30d', label: 'Last 30 days' },
-  { value: '90d', label: 'Last 90 days' },
-];
+function DashboardWithErrorBoundary() {
+  return (
+    <ErrorBoundary>
+      <DashboardPage />
+    </ErrorBoundary>
+  );
+}
 
 function DashboardPage() {
-  const [selectedEntity, setSelectedEntity] = useState(null);
-  const [timeRange, setTimeRange] = useState('7d');
+  const [period, setPeriod] = useState('week');
 
-  const { data: entities = [] } = useEntities();
-  const { data: statistics = [] } = useStatistics(selectedEntity, timeRange);
-  const { data: dailySummary = [] } = useDailySummary(
-    selectedEntity,
-    timeRange
-  );
-  const syncMutation = useSyncData();
+  // Fetch insights data
+  const { data: topConsumersData, isLoading: isLoadingTopConsumers } =
+    useTopConsumers(period, 5);
+  const { data: peakData, isLoading: isLoadingPeak } =
+    usePeakConsumption(period);
+  const { data: patternsData, isLoading: isLoadingPatterns } =
+    useConsumptionPatterns(period);
+  const { data: breakdownData, isLoading: isLoadingBreakdown } =
+    useEntityBreakdown(period);
+  const { data: timelineData, isLoading: isLoadingTimeline } =
+    useConsumptionTimeline(period, 'hour');
+  const { data: heatmapData, isLoading: isLoadingHeatmap } =
+    useHeatmapData(period);
 
-  const totalConsumption = useMemo(() => {
-    if (!dailySummary.length) return 0;
-    return dailySummary.reduce((sum, d) => sum + (d.total || 0), 0);
-  }, [dailySummary]);
+  // Extract data for KPI cards
+  const totalConsumption = topConsumersData?.total_consumption || 0;
+  const peakConsumer = topConsumersData?.top_consumers?.[0];
+  const topBurster = patternsData?.burst_consumers?.[0];
 
-  const avgDaily = useMemo(() => {
-    if (!dailySummary.length) return 0;
-    return totalConsumption / dailySummary.length;
-  }, [dailySummary, totalConsumption]);
-
-  const peakUsage = useMemo(() => {
-    if (!dailySummary.length) return 0;
-    return Math.max(...dailySummary.map((d) => d.peak || 0));
-  }, [dailySummary]);
-
-  const handleSync = () => {
-    syncMutation.mutate({
-      entityIds: selectedEntity ? [selectedEntity] : [],
-      startTime: getTimeRange(timeRange).toISOString(),
-    });
-  };
+  // For "Current Power", we'd need real-time data from a different endpoint
+  // For now, show peak value as placeholder
+  const currentPower = peakData?.peak?.value || 0;
 
   return (
     <>
-      <div className="mb-8 flex flex-wrap items-center gap-4">
-        <EntitySelector
-          entities={entities}
-          value={selectedEntity}
-          onValueChange={setSelectedEntity}
-        />
-
-        <Select value={timeRange} onValueChange={setTimeRange}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {timeRangeOptions.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>
-                {opt.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Button onClick={handleSync} disabled={syncMutation.isPending}>
-          <RefreshCw
-            className={`mr-2 h-4 w-4 ${syncMutation.isPending ? 'animate-spin' : ''}`}
-          />
-          {syncMutation.isPending ? 'Syncing...' : 'Sync from HA'}
-        </Button>
+      {/* Header with Period Selector */}
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold">Energy Dashboard</h1>
+          <p className="text-muted-foreground">
+            Consumption insights and analytics
+          </p>
+        </div>
+        <PeriodSelector value={period} onChange={setPeriod} />
       </div>
 
-      {selectedEntity ? (
-        <>
-          <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <StatsCard
-              title="Total Consumption"
-              value={formatNumber(totalConsumption)}
-              unit="kWh"
-              icon="📊"
-            />
-            <StatsCard
-              title="Daily Average"
-              value={formatNumber(avgDaily)}
-              unit="kWh"
-              icon="📈"
-            />
-            <StatsCard
-              title="Peak Usage"
-              value={formatNumber(peakUsage)}
-              unit="W"
-              icon="⚡"
-            />
-            <StatsCard
-              title="Data Points"
-              value={statistics.length}
-              unit="records"
-              icon="💾"
-            />
-          </div>
+      {/* KPI Cards Row */}
+      <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <KPICard
+          title="Total Energy"
+          value={formatNumber(totalConsumption)}
+          unit="kWh"
+          icon={<Zap className="h-5 w-5 text-violet-500" />}
+          isLoading={isLoadingTopConsumers}
+        />
 
-          <div className="grid gap-6 lg:grid-cols-2">
-            {dailySummary.length > 0 && (
-              <EnergyChart
-                data={dailySummary}
-                title="Daily Consumption"
-                labelKey="date"
-                valueKey="total"
-                type="bar"
-              />
-            )}
-            {statistics.length > 0 && (
-              <EnergyChart
-                data={statistics.slice(-168)}
-                title="Hourly Readings"
-                labelKey="start_time"
-                valueKey="mean"
-                type="line"
-              />
-            )}
-          </div>
-        </>
-      ) : (
-        <div className="py-16 text-center text-muted-foreground">
-          <p>Select an entity to view energy statistics</p>
-        </div>
-      )}
+        <KPICard
+          title="Current Power"
+          value={formatNumber(currentPower)}
+          unit="W"
+          icon={<Activity className="h-5 w-5 text-blue-500" />}
+          isLoading={isLoadingPeak}
+          isLive={true}
+        />
+
+        <KPICard
+          title="Peak Consumer"
+          value={peakConsumer?.friendly_name || 'N/A'}
+          subtitle={
+            peakConsumer
+              ? `${formatNumber(peakConsumer.consumption)} kWh (${peakConsumer.percentage.toFixed(1)}%)`
+              : undefined
+          }
+          icon={<TrendingUp className="h-5 w-5 text-green-500" />}
+          isLoading={isLoadingTopConsumers}
+        />
+
+        <KPICard
+          title="Top Burster"
+          value={topBurster?.friendly_name || 'N/A'}
+          subtitle={
+            topBurster
+              ? `Variance: ${topBurster.variance.toFixed(2)}`
+              : undefined
+          }
+          icon={<Flame className="h-5 w-5 text-amber-500" />}
+          isLoading={isLoadingPatterns}
+        />
+      </div>
+
+      {/* Charts Section - 2 column grid */}
+      <div className="mb-8 grid gap-6 lg:grid-cols-2">
+        <ConsumptionChart
+          data={timelineData?.timeline || []}
+          isLoading={isLoadingTimeline}
+        />
+
+        <BreakdownChart
+          data={breakdownData?.breakdown || []}
+          isLoading={isLoadingBreakdown}
+        />
+      </div>
+
+      {/* Heatmap Section - Full width */}
+      <div className="mb-8">
+        <HeatmapChart
+          data={heatmapData?.heatmap || []}
+          min={heatmapData?.min_consumption || 0}
+          max={heatmapData?.max_consumption || 0}
+          isLoading={isLoadingHeatmap}
+        />
+      </div>
     </>
   );
 }

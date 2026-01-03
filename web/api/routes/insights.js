@@ -703,4 +703,109 @@ export default async function insightsRoutes(fastify, options) {
       }
     }
   );
+
+  /**
+   * GET /api/insights/heatmap
+   * Get hour-of-day × day-of-week consumption heatmap
+   */
+  fastify.get(
+    '/api/insights/heatmap',
+    {
+      schema: {
+        description: 'Get consumption heatmap by hour and day of week',
+        tags: ['insights'],
+        querystring: {
+          type: 'object',
+          properties: {
+            period: {
+              type: 'string',
+              enum: VALID_PERIODS,
+              default: 'week',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              success: { type: 'boolean' },
+              data: {
+                type: 'object',
+                properties: {
+                  period: { type: 'string' },
+                  time_range: { type: 'object' },
+                  heatmap: { type: 'array' },
+                  max_consumption: { type: 'number' },
+                  min_consumption: { type: 'number' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const startMs = Date.now();
+      try {
+        const { period = 'week' } = request.query;
+
+        // Validate inputs
+        const safePeriod = validatePeriod(period);
+        const timeRange = getTimeRange(safePeriod);
+
+        // Sanitize timestamps for SQL
+        const safeStart = sanitize.timestamp(timeRange.start);
+        const safeEnd = sanitize.timestamp(timeRange.end);
+
+        // Query QuestDB for heatmap data
+        // Extract hour and day of week, then aggregate
+        const sql = `
+          SELECT
+            EXTRACT(DOW FROM timestamp) as day,
+            EXTRACT(HOUR FROM timestamp) as hour,
+            sum(sum) as consumption
+          FROM energy_statistics
+          WHERE timestamp >= '${safeStart}'
+            AND timestamp < '${safeEnd}'
+          GROUP BY day, hour
+          ORDER BY day, hour
+        `;
+
+        const result = await fastify.questdb.query(sql);
+        const dataset = result.dataset || [];
+
+        // Build heatmap array
+        const heatmap = dataset.map((row) => ({
+          day: row[0], // 0-6 (Sunday-Saturday)
+          hour: row[1], // 0-23
+          consumption: row[2],
+        }));
+
+        // Calculate min/max consumption
+        const consumptionValues = heatmap.map((h) => h.consumption);
+        const maxConsumption =
+          consumptionValues.length > 0 ? Math.max(...consumptionValues) : 0;
+        const minConsumption =
+          consumptionValues.length > 0 ? Math.min(...consumptionValues) : 0;
+
+        reply.header('X-Response-Time', `${Date.now() - startMs}ms`);
+        return {
+          success: true,
+          data: {
+            period: safePeriod,
+            time_range: timeRange,
+            heatmap,
+            max_consumption: maxConsumption,
+            min_consumption: minConsumption,
+          },
+        };
+      } catch (error) {
+        fastify.log.error({ err: error }, 'Failed to get heatmap');
+        return reply.code(500).send({
+          success: false,
+          error: error.message,
+        });
+      }
+    }
+  );
 }
