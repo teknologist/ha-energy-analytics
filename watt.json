@@ -1,8 +1,7 @@
 {
   "$schema": "https://schemas.platformatic.dev/@platformatic/runtime/3.0.0.json",
   "autoload": {
-    "path": "./web",
-    "exclude": ["recorder"]
+    "path": "./web"
   },
   "entrypoint": "api",
   "server": {

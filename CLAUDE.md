@@ -166,14 +166,20 @@ flowchart TB
         Runtime["localhost:3042"]
         API["API Service /api/*"]
         Frontend["Frontend /dashboard/*"]
+        Recorder["Recorder Service"]
 
         Runtime --> API
         Runtime --> Frontend
+        Runtime --> Recorder
     end
 
     API --> Mongo
     API --> QDB
     API --> HA
+
+    Recorder --> Mongo
+    Recorder --> QDB
+    Recorder --> HA
 
     MongoDB[(MongoDB)]
     QuestDB[(QuestDB)]
@@ -199,7 +205,11 @@ flowchart TB
   - `hooks/useEnergy.js` - Data fetching hooks
   - `lib/api.js` - API client
 
-> **Note**: The Recorder service (`web/recorder/`) is planned but not yet implemented. It is excluded from autoload in `watt.json`.
+- **Recorder** (`web/recorder/`): Event-driven statistics recording service
+  - Subscribes to Home Assistant `state_changed` events via WebSocket
+  - Records raw energy readings to QuestDB in real-time
+  - Handles heartbeat checks (3-min interval) and hourly backfill reconciliation
+  - Accesses shared plugins via `fastify.mongo`, `fastify.questdb`, `fastify.ha`
 
 ## Data Flow
 
@@ -364,7 +374,13 @@ energy-tracker/
 │   │   ├── routes/
 │   │   ├── lib/                 # Utilities + unit tests
 │   │   └── test/                # Integration tests
-│   └── frontend/                # React frontend
+│   ├── frontend/                # React frontend
+│   └── recorder/                # Event-driven recording service
+│       ├── platformatic.json
+│       ├── plugins/
+│       │   └── event-recorder.js
+│       └── routes/
+│           └── status.js
 ├── e2e/                         # Playwright E2E tests
 └── docker/
 ```
