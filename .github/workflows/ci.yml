@@ -93,16 +93,19 @@ jobs:
           HA_URL: localhost:8123
           HA_TOKEN: ${{ secrets.HA_TEST_TOKEN || 'test_token_for_ci' }}
 
-      - name: Upload coverage reports
-        uses: codecov/codecov-action@v4
+      - name: Upload coverage to PR
+        uses: romeovs/lcov-reporter-action@v0
+        with:
+          lcov-file: ./coverage/lcov.info
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload coverage HTML artifact
+        uses: actions/upload-artifact@v4
         if: always()
         with:
-          files: ./coverage/coverage-final.json
-          flags: unittests
-          name: codecov-umbrella
-          fail_ci_if_error: false
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          name: coverage-report
+          path: coverage/
+          retention-days: 30
 
       - name: Build application
         run: npm run build
