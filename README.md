@@ -1,5 +1,5 @@
 [![CI](https://github.com/teknologist/ha-energy-analytics/actions/workflows/ci.yml/badge.svg)](https://github.com/teknologist/ha-energy-analytics/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/coverage-95.18%25-brightgreen)](https://github.com/teknologist/ha-energy-analytics/actions)
+[![codecov](https://codecov.io/gh/teknologist/ha-energy-analytics/graph/badge.svg)](https://codecov.io/gh/teknologist/ha-energy-analytics)
 [![Unit Tests](https://img.shields.io/badge/unit%20tests-543%20passing-success)](https://github.com/teknologist/ha-energy-analytics)
 [![E2E Tests](https://img.shields.io/badge/e2e%20tests-429%20passing-success)](https://github.com/teknologist/ha-energy-analytics)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D22.19-blue)](https://nodejs.org/)
