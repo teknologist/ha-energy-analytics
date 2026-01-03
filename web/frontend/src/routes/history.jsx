@@ -1,144 +1,278 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { Calendar, Download } from 'lucide-react';
-import { useEntities, useStatistics } from '@/hooks/useEnergy';
-import { formatNumber, formatDate } from '@/lib/utils';
+import { Calendar, Download, TrendingUp } from 'lucide-react';
+import { useEntities, useMultiEntityStatistics } from '@/hooks/useEnergy';
+import { formatNumber } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { EntitySelector } from '@/components/EntitySelector';
+import { Skeleton } from '@/components/ui/skeleton';
+import { DateRangePicker } from '@/components/DateRangePicker';
+import { MultiEntitySelector } from '@/components/MultiEntitySelector';
+import { StatisticsTable } from '@/components/StatisticsTable';
+import { exportToCsv } from '@/lib/exportCsv';
+import { format, subDays } from 'date-fns';
 
 export const Route = createFileRoute('/history')({
   component: HistoryPage,
 });
 
 function HistoryPage() {
-  const [selectedEntity, setSelectedEntity] = useState(null);
-  const [timeRange, setTimeRange] = useState('30d');
+  // Default: Last 7 days
+  const [startDate, setStartDate] = useState(() => subDays(new Date(), 7));
+  const [endDate, setEndDate] = useState(() => new Date());
+  const [selectedEntityIds, setSelectedEntityIds] = useState([]);
 
-  const { data: entities = [] } = useEntities();
-  const { data: statistics = [] } = useStatistics(selectedEntity, timeRange);
+  // Fetch entities (only tracked)
+  const { data: allEntities = [], isLoading: entitiesLoading } = useEntities();
+  const trackedEntities = useMemo(
+    () => allEntities.filter((e) => e.is_tracked),
+    [allEntities]
+  );
 
+  // Fetch statistics for selected entities
+  const {
+    data: statsResponse,
+    isLoading: statsLoading,
+    error: statsError,
+  } = useMultiEntityStatistics(selectedEntityIds, {
+    startTime: startDate.toISOString(),
+    endTime: endDate.toISOString(),
+  });
+
+  const statistics = statsResponse?.statistics || [];
+
+  // Create entity map for quick lookups
+  const entityMap = useMemo(() => {
+    const map = new Map();
+    trackedEntities.forEach((e) => map.set(e.entity_id, e));
+    return map;
+  }, [trackedEntities]);
+
+  // Calculate summary statistics
+  const summary = useMemo(() => {
+    if (!statistics.length) {
+      return {
+        totalConsumption: 0,
+        avgDaily: 0,
+        peak: { value: 0, timestamp: null, entity: null },
+        rowCount: 0,
+      };
+    }
+
+    const totalSum = statistics.reduce((acc, s) => acc + (s.sum || 0), 0);
+    const daysDiff = Math.max(
+      1,
+      Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24))
+    );
+    const avgDaily = totalSum / daysDiff;
+
+    // Find peak
+    const peak = statistics.reduce(
+      (max, s) =>
+        s.max > max.value
+          ? {
+              value: s.max,
+              timestamp: s.timestamp || s.start_time,
+              entity: s.entity_id,
+            }
+          : max,
+      { value: 0, timestamp: null, entity: null }
+    );
+
+    return {
+      totalConsumption: totalSum,
+      avgDaily,
+      peak,
+      rowCount: statistics.length,
+    };
+  }, [statistics, startDate, endDate]);
+
+  // Handle date range change
+  const handleDateRangeChange = ({ startDate: newStart, endDate: newEnd }) => {
+    setStartDate(newStart);
+    setEndDate(newEnd);
+  };
+
+  // Handle CSV export with error handling
   const handleExport = () => {
     if (!statistics.length) return;
 
-    const csv = [
-      ['Timestamp', 'Mean (kWh)', 'Min (kWh)', 'Max (kWh)', 'Sum (kWh)'].join(
-        ','
-      ),
-      ...statistics.map((row) =>
-        [row.start_time, row.mean, row.min, row.max, row.sum].join(',')
-      ),
-    ].join('\n');
+    const filename = `energy-export-${format(startDate, 'yyyy-MM-dd')}-to-${format(endDate, 'yyyy-MM-dd')}.csv`;
+    const result = exportToCsv(statistics, entityMap, filename);
 
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `energy-history-${selectedEntity}-${timeRange}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    if (!result.success) {
+      console.error('CSV export failed:', result.error);
+      // Could show a toast notification here
+    }
   };
 
   return (
-    <>
-      <div className="mb-6 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Calendar className="h-5 w-5 text-muted-foreground" />
-          <h2 className="text-lg font-semibold">Historical Data</h2>
-        </div>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center gap-2">
+        <Calendar className="h-5 w-5 text-muted-foreground" />
+        <h2 className="text-lg font-semibold">Historical Data Explorer</h2>
       </div>
 
-      <div className="mb-6 flex flex-wrap items-center gap-4">
-        <EntitySelector
-          entities={entities}
-          value={selectedEntity}
-          onValueChange={setSelectedEntity}
-        />
+      {/* Date Range Picker */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Date Range</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <DateRangePicker
+            startDate={startDate}
+            endDate={endDate}
+            onChange={handleDateRangeChange}
+            maxRangeDays={365}
+          />
+        </CardContent>
+      </Card>
 
-        <Select value={timeRange} onValueChange={setTimeRange}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="7d">Last 7 days</SelectItem>
-            <SelectItem value="30d">Last 30 days</SelectItem>
-            <SelectItem value="90d">Last 90 days</SelectItem>
-            <SelectItem value="365d">Last year</SelectItem>
-          </SelectContent>
-        </Select>
+      {/* Entity Selector */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Select Entities</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {entitiesLoading ? (
+            <Skeleton className="h-10 w-full" />
+          ) : (
+            <MultiEntitySelector
+              entities={trackedEntities}
+              selectedIds={selectedEntityIds}
+              onChange={setSelectedEntityIds}
+            />
+          )}
+        </CardContent>
+      </Card>
 
-        <Button
-          variant="outline"
-          onClick={handleExport}
-          disabled={!statistics.length}
-        >
-          <Download className="mr-2 h-4 w-4" />
-          Export CSV
-        </Button>
-      </div>
+      {/* Summary Statistics */}
+      {selectedEntityIds.length > 0 && (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Total Consumption
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {statsLoading ? (
+                  <Skeleton className="h-8 w-24" />
+                ) : (
+                  `${formatNumber(summary.totalConsumption)} kWh`
+                )}
+              </div>
+            </CardContent>
+          </Card>
 
-      {selectedEntity && statistics.length > 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">
-              {statistics.length} records found
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="max-h-[500px] overflow-auto">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-background">
-                  <tr className="border-b">
-                    <th className="py-2 text-left font-medium">Timestamp</th>
-                    <th className="py-2 text-right font-medium">Mean</th>
-                    <th className="py-2 text-right font-medium">Min</th>
-                    <th className="py-2 text-right font-medium">Max</th>
-                    <th className="py-2 text-right font-medium">Sum</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {statistics.slice(0, 200).map((row, idx) => (
-                    <tr key={idx} className="border-b border-border/50">
-                      <td className="py-2 text-muted-foreground">
-                        {formatDate(row.start_time)}
-                      </td>
-                      <td className="py-2 text-right">
-                        {formatNumber(row.mean)} kWh
-                      </td>
-                      <td className="py-2 text-right text-muted-foreground">
-                        {formatNumber(row.min)}
-                      </td>
-                      <td className="py-2 text-right text-muted-foreground">
-                        {formatNumber(row.max)}
-                      </td>
-                      <td className="py-2 text-right font-medium">
-                        {formatNumber(row.sum)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {statistics.length > 200 && (
-                <p className="mt-4 text-center text-sm text-muted-foreground">
-                  Showing first 200 of {statistics.length} records. Export to
-                  CSV for full data.
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Avg Daily
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {statsLoading ? (
+                  <Skeleton className="h-8 w-24" />
+                ) : (
+                  `${formatNumber(summary.avgDaily)} kWh`
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Peak Value
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {statsLoading ? (
+                  <Skeleton className="h-8 w-24" />
+                ) : (
+                  `${formatNumber(summary.peak.value)} kWh`
+                )}
+              </div>
+              {summary.peak.timestamp && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {format(new Date(summary.peak.timestamp), 'MMM dd, HH:mm')}
                 </p>
               )}
-            </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Data Points
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {statsLoading ? (
+                  <Skeleton className="h-8 w-24" />
+                ) : (
+                  formatNumber(summary.rowCount, 0)
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {selectedEntityIds.length} entities
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Export Button */}
+      {selectedEntityIds.length > 0 && statistics.length > 0 && (
+        <div className="flex justify-end">
+          <Button onClick={handleExport} disabled={statsLoading}>
+            <Download className="mr-2 h-4 w-4" />
+            Export Full Dataset to CSV
+          </Button>
+        </div>
+      )}
+
+      {/* Data Table */}
+      {selectedEntityIds.length === 0 ? (
+        <Card>
+          <CardContent className="py-16 text-center text-muted-foreground">
+            <TrendingUp className="mx-auto h-12 w-12 mb-4 opacity-20" />
+            <p>Select entities and a date range to view historical data</p>
+          </CardContent>
+        </Card>
+      ) : statsLoading ? (
+        <Card>
+          <CardContent className="py-8">
+            <Skeleton className="h-64 w-full" />
+          </CardContent>
+        </Card>
+      ) : statsError ? (
+        <Card>
+          <CardContent className="py-16 text-center text-destructive">
+            <p>Error loading statistics: {statsError.message}</p>
           </CardContent>
         </Card>
       ) : (
-        <div className="py-16 text-center text-muted-foreground">
-          <p>Select an entity to view historical data</p>
-        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Statistics Data</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <StatisticsTable
+              data={statistics}
+              entityMap={entityMap}
+              pageSize={50}
+              maxDisplayRows={200}
+            />
+          </CardContent>
+        </Card>
       )}
-    </>
+    </div>
   );
 }
