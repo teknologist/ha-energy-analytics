@@ -9,7 +9,7 @@ export default defineConfig({
   reporter: process.env.CI ? 'list' : 'html',
   use: {
     // Use 127.0.0.1 instead of localhost for CI to avoid IPv6 resolution issues
-    baseURL: process.env.CI ? 'http://127.0.0.1:3044' : 'http://localhost:3044',
+    baseURL: process.env.CI ? 'http://127.0.0.1:3042' : 'http://localhost:3042',
     trace: 'on-first-retry',
   },
   projects: [
