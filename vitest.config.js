@@ -8,7 +8,7 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'json', 'html', 'lcov'],
       include: [
-        'web/api/lib/**/*.js',
+        'web/api/**/*.js',
         'runtime-plugins/mongodb.js',
         'runtime-plugins/questdb.js',
       ],
@@ -18,8 +18,6 @@ export default defineConfig({
         '**/*.test.js',
         '**/test/**',
         'e2e/**',
-        // Routes are covered by E2E tests
-        'web/api/routes/**',
         // home-assistant.js requires real HA instance
         'runtime-plugins/home-assistant.js',
       ],

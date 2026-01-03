@@ -87,7 +87,7 @@ jobs:
           HA_URL: localhost:8123
           HA_TOKEN: ${{ secrets.HA_TEST_TOKEN || 'test_token_for_ci' }}
 
-      - name: Generate coverage report
+      - name: Generate unit test coverage report
         run: npm run test:coverage
         env:
           MONGODB_URI: mongodb://localhost:27017/energy_dashboard_test
@@ -97,19 +97,11 @@ jobs:
           HA_URL: localhost:8123
           HA_TOKEN: ${{ secrets.HA_TEST_TOKEN || 'test_token_for_ci' }}
 
-      - name: Upload coverage to PR
-        uses: romeovs/lcov-reporter-action@v0.4.0
-        with:
-          lcov-file: ./coverage/lcov.info
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload coverage HTML artifact
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: coverage-report
-          path: coverage/
-          retention-days: 30
+      - name: Backup unit test coverage
+        run: |
+          mkdir -p coverage/backup
+          cp coverage/lcov.info coverage/backup/unit.lcov
+          cp coverage/coverage-final.json coverage/backup/unit.json
 
       - name: Build application
         run: npm run build
@@ -133,12 +125,13 @@ jobs:
             sleep 1
           done
 
-      - name: Start dev server
+      - name: Start dev server with coverage
         run: |
-          mkdir -p logs
+          mkdir -p logs coverage/e2e
           # Set PORT to match expected test port
           export PORT=3042
-          nohup npm run dev > logs/server.log 2>&1 &
+          # Start server with c8 coverage instrumentation
+          nohup npx c8 --all --include='web/api/**/*.js' --include='runtime-plugins/mongodb.js' --include='runtime-plugins/questdb.js' --exclude='**/*.test.js' --exclude='**/test/**' --exclude='e2e/**' --exclude='web/frontend/**' --exclude='runtime-plugins/home-assistant.js' --reporter=json --reporter=lcov --reports-directory=./coverage/e2e wattpm dev > logs/server.log 2>&1 &
           echo $! > logs/server.pid
           # Wait for server to be ready (use 127.0.0.1 to avoid IPv6 issues)
           for i in {1..60}; do
@@ -160,6 +153,53 @@ jobs:
           QUESTDB_ILP_PORT: 9009
           HA_URL: localhost:8123
           HA_TOKEN: ${{ secrets.HA_TEST_TOKEN || 'test_token_for_ci' }}
+
+      - name: Stop server and collect E2E coverage
+        if: always()
+        run: |
+          if [ -f logs/server.pid ]; then
+            pid=$(cat logs/server.pid)
+            if ps -p $pid > /dev/null; then
+              echo "Stopping server (PID: $pid)"
+              kill $pid
+              # Wait for process to terminate and coverage to be written
+              sleep 5
+            fi
+          fi
+          # Check if E2E coverage was generated
+          if [ -f coverage/e2e/lcov.info ]; then
+            echo "E2E coverage generated successfully"
+            wc -l coverage/e2e/lcov.info
+          else
+            echo "Warning: E2E coverage file not found"
+            ls -la coverage/e2e/ || true
+          fi
+
+      - name: Merge unit and E2E coverage
+        run: |
+          # Install lcov-result-merger for merging lcov files
+          npm install --save-dev lcov-result-merger
+          # Merge the lcov files
+          npx lcov-result-merger coverage/backup/unit.lcov coverage/e2e/lcov.info > coverage/lcov.info
+          echo "Coverage merged successfully"
+          # Display summary
+          npx c8 report --reporter=text
+        env:
+          NODE_V8_COVERAGE: coverage/e2e
+
+      - name: Upload coverage to PR
+        uses: romeovs/lcov-reporter-action@v0.4.0
+        with:
+          lcov-file: ./coverage/lcov.info
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload coverage HTML artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 30
 
       - name: Check server logs after tests
         if: always()
