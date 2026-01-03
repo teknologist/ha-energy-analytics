@@ -16,7 +16,7 @@ const ENTITY_ID_PATTERN = /^[a-z_]+\.[a-z0-9_]+$/i;
  * @param {string} entityId - Entity ID to validate
  * @returns {boolean} True if valid
  */
-function isValidEntityId(entityId) {
+export function isValidEntityId(entityId) {
   return (
     typeof entityId === 'string' &&
     entityId.length >= 3 &&
@@ -67,7 +67,26 @@ export default async function statisticsRoutes(fastify, options) {
             type: 'object',
             properties: {
               success: { type: 'boolean' },
-              data: { type: 'object' },
+              data: {
+                type: 'object',
+                properties: {
+                  entities_synced: { type: 'number' },
+                  records_synced: { type: 'number' },
+                  period: { type: 'string' },
+                  time_range: {
+                    type: 'object',
+                    properties: {
+                      start: { type: 'string' },
+                      end: { type: 'string' },
+                    },
+                  },
+                  failed_entities: {
+                    type: 'array',
+                    items: { type: 'object' },
+                  },
+                  partial_success: { type: 'boolean' },
+                },
+              },
             },
           },
         },
@@ -270,7 +289,17 @@ export default async function statisticsRoutes(fastify, options) {
             type: 'object',
             properties: {
               success: { type: 'boolean' },
-              data: { type: 'object' },
+              data: {
+                type: 'object',
+                properties: {
+                  entity_id: { type: 'string' },
+                  start_time: { type: 'string' },
+                  end_time: { type: 'string' },
+                  period: { type: 'string' },
+                  source: { type: 'string' },
+                  statistics: { type: 'array' },
+                },
+              },
             },
           },
         },
@@ -369,7 +398,21 @@ export default async function statisticsRoutes(fastify, options) {
             type: 'object',
             properties: {
               success: { type: 'boolean' },
-              data: { type: 'object' },
+              data: {
+                type: 'object',
+                properties: {
+                  entity_id: { type: 'string' },
+                  period: { type: 'string' },
+                  time_range: {
+                    type: 'object',
+                    properties: {
+                      start: { type: 'string' },
+                      end: { type: 'string' },
+                    },
+                  },
+                  summary: { type: 'array' },
+                },
+              },
             },
           },
         },
@@ -463,7 +506,21 @@ export default async function statisticsRoutes(fastify, options) {
             type: 'object',
             properties: {
               success: { type: 'boolean' },
-              data: { type: 'object' },
+              data: {
+                type: 'object',
+                properties: {
+                  entity_id: { type: 'string' },
+                  period: { type: 'string' },
+                  time_range: {
+                    type: 'object',
+                    properties: {
+                      start: { type: 'string' },
+                      end: { type: 'string' },
+                    },
+                  },
+                  summary: { type: 'array' },
+                },
+              },
             },
           },
         },
@@ -540,15 +597,6 @@ export default async function statisticsRoutes(fastify, options) {
             limit: { type: 'integer', minimum: 1, maximum: 100, default: 50 },
           },
         },
-        response: {
-          200: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean' },
-              data: { type: 'object' },
-            },
-          },
-        },
       },
     },
     async (request, reply) => {
@@ -567,19 +615,20 @@ export default async function statisticsRoutes(fastify, options) {
         return {
           success: true,
           data: {
-            logs: logs.map((log) => ({
-              id: log._id,
-              entity_ids: log.entityIds,
-              records_synced: log.recordsSynced,
-              start_time: log.startTime,
-              end_time: log.endTime,
-              period: log.period,
-              duration: log.duration,
-              success: log.success,
-              error: log.error,
-              created_at: log.createdAt,
-            })),
-            count: logs.length,
+            logs:
+              logs?.map((log) => ({
+                id: log._id?.toString() || log._id,
+                entity_ids: log.entityIds,
+                records_synced: log.recordsSynced,
+                start_time: log.startTime,
+                end_time: log.endTime,
+                period: log.period,
+                duration: log.duration,
+                success: log.success,
+                error: log.error,
+                created_at: log.createdAt,
+              })) || [],
+            count: logs?.length || 0,
           },
         };
       } catch (error) {
@@ -620,15 +669,6 @@ export default async function statisticsRoutes(fastify, options) {
             },
           },
           required: ['entity_ids'],
-        },
-        response: {
-          200: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean' },
-              data: { type: 'object' },
-            },
-          },
         },
       },
     },
@@ -680,7 +720,8 @@ export default async function statisticsRoutes(fastify, options) {
                 endTime
               );
             }
-            results[entityId] = data;
+            // Always include the entity_id in results, even if data is empty
+            results[entityId] = data || [];
           } catch (error) {
             fastify.log.warn(
               { entityId, err: error },

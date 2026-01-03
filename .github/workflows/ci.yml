@@ -128,9 +128,19 @@ jobs:
       - name: Start dev server with coverage
         run: |
           mkdir -p logs coverage/e2e/v8
-          # Run wattpm directly (not via npx) so NODE_V8_COVERAGE propagates to workers
-          # This captures V8 coverage for all loaded JS files including routes
-          NODE_V8_COVERAGE=coverage/e2e/v8 PORT=3042 node node_modules/wattpm/bin/cli.js dev > logs/server.log 2>&1 &
+          # Use c8 as a wrapper to capture coverage from all subprocesses (Watt workers)
+          # c8 sets NODE_V8_COVERAGE internally and handles subprocess coverage collection
+          npx c8 --temp-directory=coverage/e2e/v8 \
+            --include='web/api/**/*.js' \
+            --include='runtime-plugins/mongodb.js' \
+            --include='runtime-plugins/questdb.js' \
+            --exclude='**/*.test.js' \
+            --exclude='**/node_modules/**' \
+            --exclude='**/test/**' \
+            --exclude='e2e/**' \
+            --exclude='web/frontend/**' \
+            --exclude='runtime-plugins/home-assistant.js' \
+            -- node node_modules/wattpm/bin/cli.js dev > logs/server.log 2>&1 &
           echo $! > logs/server.pid
           # Wait for server to be ready (use 127.0.0.1 to avoid IPv6 issues)
           for i in {1..60}; do
@@ -159,13 +169,19 @@ jobs:
           if [ -f logs/server.pid ]; then
             pid=$(cat logs/server.pid)
             if ps -p $pid > /dev/null; then
-              echo "Stopping server (PID: $pid)"
-              # Send SIGINT to trigger graceful shutdown and V8 coverage write
-              kill -INT $pid
+              echo "Stopping c8/server (PID: $pid)"
+              # Send SIGTERM to c8 - it will propagate to wattpm and collect coverage
+              kill -TERM $pid
               # Wait for process to terminate and coverage to be written
-              sleep 5
+              for i in {1..30}; do
+                if ! ps -p $pid > /dev/null 2>&1; then
+                  echo "Process terminated after $i seconds"
+                  break
+                fi
+                sleep 1
+              done
               # If still running, force kill
-              if ps -p $pid > /dev/null; then
+              if ps -p $pid > /dev/null 2>&1; then
                 echo "Process still running, force killing..."
                 kill -9 $pid
                 sleep 2
@@ -175,9 +191,9 @@ jobs:
           # Check if V8 coverage files were generated
           echo "V8 coverage directory contents:"
           ls -la coverage/e2e/v8/ || true
-          # Convert V8 coverage JSON to lcov format using c8
+          # Generate coverage report from V8 data
           if ls coverage/e2e/v8/*.json 1> /dev/null 2>&1; then
-            echo "Converting V8 coverage to lcov format..."
+            echo "Generating E2E coverage report..."
             npx c8 report \
               --temp-directory=coverage/e2e/v8 \
               --include='web/api/**/*.js' \
@@ -196,6 +212,7 @@ jobs:
             wc -l coverage/e2e/lcov.info || true
           else
             echo "Warning: No V8 coverage files found"
+            ls -laR coverage/ || true
           fi
 
       - name: Merge unit and E2E coverage
@@ -205,11 +222,19 @@ jobs:
           echo "E2E coverage lines:"
           if [ -f coverage/e2e/lcov.info ]; then
             wc -l coverage/e2e/lcov.info
-            # Simply concatenate the lcov files (lcov format supports this)
-            cat coverage/backup/unit.lcov coverage/e2e/lcov.info > coverage/lcov.info
+            # Install lcov for proper merge (deduplicates and combines coverage)
+            sudo apt-get install -y lcov > /dev/null 2>&1
+            # Merge lcov files properly - this combines coverage for same files
+            lcov --add-tracefile coverage/backup/unit.lcov \
+                 --add-tracefile coverage/e2e/lcov.info \
+                 --output-file coverage/lcov.info \
+                 --rc lcov_branch_coverage=1
             echo "Coverage merged successfully"
             echo "Merged coverage lines:"
             wc -l coverage/lcov.info
+            # Show merged file list (should have no duplicates)
+            echo "Files in merged coverage:"
+            grep "^SF:" coverage/lcov.info | sort | uniq -c
           else
             echo "E2E coverage not found, using unit coverage only"
             cp coverage/backup/unit.lcov coverage/lcov.info

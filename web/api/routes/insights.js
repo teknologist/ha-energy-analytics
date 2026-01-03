@@ -35,52 +35,52 @@ const MS_PER_DAY = 24 * MS_PER_HOUR;
  * @property {string} [deviceClass] - Device class
  */
 
+/**
+ * Calculate time range based on period
+ * @param {string} period - Period identifier (day, week, month)
+ * @returns {TimeRange} Start and end timestamps
+ */
+export function getTimeRange(period) {
+  const endTime = new Date();
+  let startTime;
+
+  switch (period) {
+    case 'day':
+      startTime = new Date(Date.now() - MS_PER_DAY);
+      break;
+    case 'week':
+      startTime = new Date(Date.now() - 7 * MS_PER_DAY);
+      break;
+    case 'month':
+      startTime = new Date(Date.now() - 30 * MS_PER_DAY);
+      break;
+    default:
+      startTime = new Date(Date.now() - 7 * MS_PER_DAY);
+  }
+
+  return {
+    start: startTime.toISOString(),
+    end: endTime.toISOString(),
+  };
+}
+
+/**
+ * Validate period parameter
+ * @param {string} period - Period to validate
+ * @returns {string} Validated period
+ * @throws {Error} If period is invalid
+ */
+export function validatePeriod(period) {
+  if (!VALID_PERIODS.includes(period)) {
+    throw new Error(
+      `Invalid period: ${period}. Must be one of: ${VALID_PERIODS.join(', ')}`
+    );
+  }
+  return period;
+}
+
 export default async function insightsRoutes(fastify, options) {
   const { sanitize } = fastify.questdb;
-
-  /**
-   * Calculate time range based on period
-   * @param {string} period - Period identifier (day, week, month)
-   * @returns {TimeRange} Start and end timestamps
-   */
-  function getTimeRange(period) {
-    const endTime = new Date();
-    let startTime;
-
-    switch (period) {
-      case 'day':
-        startTime = new Date(Date.now() - MS_PER_DAY);
-        break;
-      case 'week':
-        startTime = new Date(Date.now() - 7 * MS_PER_DAY);
-        break;
-      case 'month':
-        startTime = new Date(Date.now() - 30 * MS_PER_DAY);
-        break;
-      default:
-        startTime = new Date(Date.now() - 7 * MS_PER_DAY);
-    }
-
-    return {
-      start: startTime.toISOString(),
-      end: endTime.toISOString(),
-    };
-  }
-
-  /**
-   * Validate period parameter
-   * @param {string} period - Period to validate
-   * @returns {string} Validated period
-   * @throws {Error} If period is invalid
-   */
-  function validatePeriod(period) {
-    if (!VALID_PERIODS.includes(period)) {
-      throw new Error(
-        `Invalid period: ${period}. Must be one of: ${VALID_PERIODS.join(', ')}`
-      );
-    }
-    return period;
-  }
 
   /**
    * Validate and sanitize limit parameter

@@ -54,7 +54,7 @@ const rateLimitState = {
  * @param {string} entityId - Entity ID to validate
  * @returns {boolean} True if valid
  */
-function isValidEntityId(entityId) {
+export function isValidEntityId(entityId) {
   return (
     typeof entityId === 'string' &&
     entityId.length >= 3 &&
@@ -68,7 +68,7 @@ function isValidEntityId(entityId) {
  * @param {EntityFilters} filters - Filters to validate
  * @returns {{valid: boolean, error?: string}} Validation result
  */
-function validateFilters(filters) {
+export function validateFilters(filters) {
   if (
     filters.device_class &&
     !VALID_DEVICE_CLASSES.includes(filters.device_class)
@@ -94,7 +94,7 @@ function validateFilters(filters) {
  * @param {string} operation - Operation name
  * @returns {{allowed: boolean, retryAfterMs?: number}} Rate limit result
  */
-function checkRateLimit(operation) {
+export function checkRateLimit(operation) {
   const state = rateLimitState[operation];
   if (!state) {
     return { allowed: true };
@@ -120,7 +120,7 @@ function checkRateLimit(operation) {
  * @param {EntityFilters} filters - Filters to apply
  * @returns {Array<Object>} Filtered entities
  */
-function applyEntityFilters(entities, filters) {
+export function applyEntityFilters(entities, filters) {
   let filtered = entities;
 
   if (filters.device_class) {
@@ -154,7 +154,7 @@ function applyEntityFilters(entities, filters) {
  * @param {EntityDocument} entity - MongoDB entity document
  * @returns {Object} Transformed entity for API response
  */
-function transformEntityToResponse(entity) {
+export function transformEntityToResponse(entity) {
   return {
     entity_id: entity.entityId,
     friendly_name: entity.friendlyName || entity.entityId,
@@ -172,7 +172,7 @@ function transformEntityToResponse(entity) {
  * @param {HAState} state - Home Assistant state object
  * @returns {Object} Transformed entity for API response
  */
-function transformHAStateToResponse(state) {
+export function transformHAStateToResponse(state) {
   return {
     entity_id: state.entity_id,
     friendly_name: state.attributes?.friendly_name || state.entity_id,
@@ -441,7 +441,15 @@ export default async function entitiesRoutes(fastify, options) {
             type: 'object',
             properties: {
               success: { type: 'boolean' },
-              data: { type: 'object' },
+              data: {
+                type: 'object',
+                properties: {
+                  entities: { type: 'array', nullable: true },
+                  count: { type: 'number', nullable: true },
+                  source: { type: 'string', nullable: true },
+                  last_sync: { type: ['string', 'null'], nullable: true },
+                },
+              },
             },
           },
         },
