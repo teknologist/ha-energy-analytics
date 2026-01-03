@@ -47,9 +47,27 @@ npm run test:e2e       # Run E2E tests (requires app running)
 ### Coverage Target
 
 - **Minimum 80% statement coverage** on testable code
-- Coverage config excludes:
-  - `home-assistant.js` (requires real HA instance)
-  - `web/api/routes/**` (covered by E2E tests)
+
+### Coverage Configuration
+
+**Files included in coverage** (`vitest.config.js`):
+- `web/api/**/*.js` - API service code (lib utilities)
+- `runtime-plugins/mongodb.js` - MongoDB plugin
+- `runtime-plugins/questdb.js` - QuestDB plugin
+
+**Files excluded from coverage:**
+- `runtime-plugins/home-assistant.js` - requires real HA instance
+- `web/api/routes/**` - covered by E2E tests (Playwright)
+- `web/frontend/**` - frontend has separate testing
+- All test files (`*.test.js`, `test/**`)
+
+**Why only some files appear in coverage reports:**
+Coverage reports only show files that are actually exercised by tests. Files with 0% coverage or no test execution don't appear. The three typical files shown are:
+- `runtime-plugins/mongodb.js` - tested via integration tests
+- `runtime-plugins/questdb.js` - tested via integration tests
+- `web/api/lib/utils.js` - tested via unit tests
+
+Route files don't appear because they're excluded (E2E coverage via Playwright instead).
 
 ### Writing Tests
 
