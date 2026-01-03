@@ -1,0 +1,32 @@
+{
+  "$schema": "https://schemas.platformatic.dev/@platformatic/service/3.0.0.json",
+  "server": {
+    "hostname": "127.0.0.1",
+    "port": 0,
+    "logger": {
+      "level": "info"
+    }
+  },
+  "service": {
+    "openapi": {
+      "info": {
+        "title": "Energy Recorder Service",
+        "description": "Event-driven sync service for Home Assistant energy data",
+        "version": "1.0.0"
+      }
+    }
+  },
+  "plugins": {
+    "paths": [
+      { "path": "../../runtime-plugins/mongodb.js", "encapsulate": false },
+      { "path": "../../runtime-plugins/questdb.js", "encapsulate": false },
+      {
+        "path": "../../runtime-plugins/home-assistant.js",
+        "encapsulate": false
+      },
+      { "path": "./plugins/event-recorder.js", "encapsulate": false },
+      { "path": "./routes", "encapsulate": false }
+    ]
+  },
+  "watch": true
+}

@@ -1,0 +1,13 @@
+{
+  "name": "recorder",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "platformatic.json",
+  "scripts": {
+    "start": "platformatic start"
+  },
+  "dependencies": {
+    "@platformatic/service": "^3.29.1",
+    "fastify-plugin": "^5.0.0"
+  }
+}

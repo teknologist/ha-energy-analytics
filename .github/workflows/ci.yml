@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main, develop]
 
+permissions:
+  pull-requests: write
+  contents: read
+
 jobs:
   test:
     name: Test
@@ -83,7 +87,7 @@ jobs:
           HA_URL: localhost:8123
           HA_TOKEN: ${{ secrets.HA_TEST_TOKEN || 'test_token_for_ci' }}
 
-      - name: Generate coverage report
+      - name: Generate unit test coverage report
         run: npm run test:coverage
         env:
           MONGODB_URI: mongodb://localhost:27017/energy_dashboard_test
@@ -93,16 +97,11 @@ jobs:
           HA_URL: localhost:8123
           HA_TOKEN: ${{ secrets.HA_TEST_TOKEN || 'test_token_for_ci' }}
 
-      - name: Upload coverage reports
-        uses: codecov/codecov-action@v4
-        if: always()
-        with:
-          files: ./coverage/coverage-final.json
-          flags: unittests
-          name: codecov-umbrella
-          fail_ci_if_error: false
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      - name: Backup unit test coverage
+        run: |
+          mkdir -p coverage/backup
+          cp coverage/lcov.info coverage/backup/unit.lcov
+          cp coverage/coverage-final.json coverage/backup/unit.json
 
       - name: Build application
         run: npm run build
@@ -126,12 +125,22 @@ jobs:
             sleep 1
           done
 
-      - name: Start dev server
+      - name: Start dev server with coverage
         run: |
-          mkdir -p logs
-          # Set PORT to match expected test port
-          export PORT=3042
-          nohup npm run dev > logs/server.log 2>&1 &
+          mkdir -p logs coverage/e2e/v8
+          # Use c8 as a wrapper to capture coverage from all subprocesses (Watt workers)
+          # c8 sets NODE_V8_COVERAGE internally and handles subprocess coverage collection
+          npx c8 --temp-directory=coverage/e2e/v8 \
+            --include='web/api/**/*.js' \
+            --include='runtime-plugins/mongodb.js' \
+            --include='runtime-plugins/questdb.js' \
+            --exclude='**/*.test.js' \
+            --exclude='**/node_modules/**' \
+            --exclude='**/test/**' \
+            --exclude='e2e/**' \
+            --exclude='web/frontend/**' \
+            --exclude='runtime-plugins/home-assistant.js' \
+            -- node node_modules/wattpm/bin/cli.js dev > logs/server.log 2>&1 &
           echo $! > logs/server.pid
           # Wait for server to be ready (use 127.0.0.1 to avoid IPv6 issues)
           for i in {1..60}; do
@@ -143,6 +152,8 @@ jobs:
             echo "Waiting for server... ($i/60)"
             sleep 2
           done
+        env:
+          PORT: 3042
 
       - name: Run E2E tests
         run: npm run test:e2e
@@ -153,6 +164,99 @@ jobs:
           QUESTDB_ILP_PORT: 9009
           HA_URL: localhost:8123
           HA_TOKEN: ${{ secrets.HA_TEST_TOKEN || 'test_token_for_ci' }}
+
+      - name: Stop server and collect E2E coverage
+        if: always()
+        run: |
+          if [ -f logs/server.pid ]; then
+            pid=$(cat logs/server.pid)
+            if ps -p $pid > /dev/null; then
+              echo "Stopping c8/server (PID: $pid)"
+              # Send SIGTERM to c8 - it will propagate to wattpm and collect coverage
+              kill -TERM $pid
+              # Wait for process to terminate and coverage to be written
+              for i in {1..30}; do
+                if ! ps -p $pid > /dev/null 2>&1; then
+                  echo "Process terminated after $i seconds"
+                  break
+                fi
+                sleep 1
+              done
+              # If still running, force kill
+              if ps -p $pid > /dev/null 2>&1; then
+                echo "Process still running, force killing..."
+                kill -9 $pid
+                sleep 2
+              fi
+            fi
+          fi
+          # Check if V8 coverage files were generated
+          echo "V8 coverage directory contents:"
+          ls -la coverage/e2e/v8/ || true
+          # Generate coverage report from V8 data
+          if ls coverage/e2e/v8/*.json 1> /dev/null 2>&1; then
+            echo "Generating E2E coverage report..."
+            npx c8 report \
+              --temp-directory=coverage/e2e/v8 \
+              --include='web/api/**/*.js' \
+              --include='runtime-plugins/mongodb.js' \
+              --include='runtime-plugins/questdb.js' \
+              --exclude='**/*.test.js' \
+              --exclude='**/node_modules/**' \
+              --exclude='**/test/**' \
+              --exclude='e2e/**' \
+              --exclude='web/frontend/**' \
+              --exclude='runtime-plugins/home-assistant.js' \
+              --reporter=lcov \
+              --reporter=text \
+              --report-dir=coverage/e2e
+            echo "E2E coverage report generated:"
+            wc -l coverage/e2e/lcov.info || true
+          else
+            echo "Warning: No V8 coverage files found"
+            ls -laR coverage/ || true
+          fi
+
+      - name: Merge unit and E2E coverage
+        run: |
+          echo "Unit coverage lines:"
+          wc -l coverage/backup/unit.lcov
+          echo "E2E coverage lines:"
+          if [ -f coverage/e2e/lcov.info ] && [ -s coverage/e2e/lcov.info ]; then
+            wc -l coverage/e2e/lcov.info
+            # Install lcov for proper merge (deduplicates and combines coverage)
+            sudo apt-get install -y lcov > /dev/null 2>&1
+            # Merge lcov files properly - this combines coverage for same files
+            # Use --ignore-errors to handle empty or malformed files gracefully
+            lcov --add-tracefile coverage/backup/unit.lcov \
+                 --add-tracefile coverage/e2e/lcov.info \
+                 --output-file coverage/lcov.info \
+                 --ignore-errors empty \
+                 --rc lcov_branch_coverage=1
+            echo "Coverage merged successfully"
+            echo "Merged coverage lines:"
+            wc -l coverage/lcov.info
+            # Show merged file list (should have no duplicates)
+            echo "Files in merged coverage:"
+            grep "^SF:" coverage/lcov.info | sort | uniq -c
+          else
+            echo "E2E coverage not found or empty, using unit coverage only"
+            cp coverage/backup/unit.lcov coverage/lcov.info
+          fi
+
+      - name: Upload coverage to PR
+        uses: romeovs/lcov-reporter-action@v0.4.0
+        with:
+          lcov-file: ./coverage/lcov.info
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload coverage HTML artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 30
 
       - name: Check server logs after tests
         if: always()
