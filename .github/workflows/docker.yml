@@ -5,20 +5,13 @@ on:
     branches: [ main, develop ]
     paths:
       - 'docker/**'
-      - 'web/**'
-      - 'package*.json'
-      - 'watt.json'
-      - 'docker-compose.yml'
+      - 'Dockerfile*'
       - '.dockerignore'
-      - '.github/workflows/docker.yml'
   pull_request:
     branches: [ main, develop ]
     paths:
       - 'docker/**'
-      - 'web/**'
-      - 'package*.json'
-      - 'watt.json'
-      - 'docker-compose.yml'
+      - 'Dockerfile*'
       - '.dockerignore'
 
 env:
@@ -110,7 +103,7 @@ jobs:
           QUESTDB_HOST=questdb
           QUESTDB_ILP_PORT=9009
           QUESTDB_HTTP_PORT=9000
-          HA_URL=homeassistant.local:8123
+          HA_URL=localhost:8123
           HA_TOKEN=test_token_for_ci
           EOF
 
@@ -119,6 +112,21 @@ jobs:
           docker compose up -d mongodb questdb
           echo "Waiting for services to start..."
           sleep 30
+
+      - name: Start mock Home Assistant server
+        run: |
+          mkdir -p logs
+          nohup node tests/mock-ha-server.js > logs/mock-ha.log 2>&1 &
+          echo $! > logs/mock-ha.pid
+          # Wait for mock HA to be ready
+          for i in {1..20}; do
+            if curl -sf http://localhost:8123/health > /dev/null 2>&1; then
+              echo "Mock HA server is ready"
+              break
+            fi
+            echo "Waiting for mock HA server... ($i/20)"
+            sleep 1
+          done
 
       - name: Verify databases are running
         run: |
