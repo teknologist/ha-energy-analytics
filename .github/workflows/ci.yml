@@ -8,7 +8,7 @@ on:
 
 permissions:
   pull-requests: write
-  contents: read
+  contents: write
 
 jobs:
   test:
@@ -78,7 +78,13 @@ jobs:
           npm ci
 
       - name: Run unit tests
-        run: npm run test:unit
+        id: unit_tests
+        run: |
+          npm run test:unit 2>&1 | tee logs/unit-tests.log
+          # Extract test count from Vitest output (e.g., "Tests  543 passed")
+          UNIT_COUNT=$(grep -oP 'Tests\s+\K\d+(?=\s+passed)' logs/unit-tests.log | tail -1 || echo "0")
+          echo "unit_count=$UNIT_COUNT" >> $GITHUB_OUTPUT
+          echo "Unit tests passed: $UNIT_COUNT"
         env:
           MONGODB_URI: mongodb://localhost:27017/energy_dashboard_test
           QUESTDB_HOST: localhost
@@ -156,7 +162,13 @@ jobs:
           PORT: 3042
 
       - name: Run E2E tests
-        run: npm run test:e2e
+        id: e2e_tests
+        run: |
+          npm run test:e2e 2>&1 | tee logs/e2e-tests.log
+          # Extract test count from Playwright output (e.g., "429 passed")
+          E2E_COUNT=$(grep -oP '\d+(?=\s+passed)' logs/e2e-tests.log | tail -1 || echo "0")
+          echo "e2e_count=$E2E_COUNT" >> $GITHUB_OUTPUT
+          echo "E2E tests passed: $E2E_COUNT"
         env:
           MONGODB_URI: mongodb://localhost:27017/energy_dashboard_test
           QUESTDB_HOST: localhost
@@ -289,6 +301,45 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 30
+
+      - name: Update test count badges
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          UNIT_COUNT="${{ steps.unit_tests.outputs.unit_count }}"
+          E2E_COUNT="${{ steps.e2e_tests.outputs.e2e_count }}"
+
+          echo "Updating badges: Unit=$UNIT_COUNT, E2E=$E2E_COUNT"
+
+          # Skip if counts are empty or zero
+          if [ -z "$UNIT_COUNT" ] || [ "$UNIT_COUNT" = "0" ]; then
+            echo "Unit test count not available, skipping badge update"
+            exit 0
+          fi
+          if [ -z "$E2E_COUNT" ] || [ "$E2E_COUNT" = "0" ]; then
+            echo "E2E test count not available, skipping badge update"
+            exit 0
+          fi
+
+          # Update unit tests badge
+          sed -i "s/unit%20tests-[0-9]*%20passing/unit%20tests-${UNIT_COUNT}%20passing/g" README.md
+
+          # Update E2E tests badge
+          sed -i "s/e2e%20tests-[0-9]*%20passing/e2e%20tests-${E2E_COUNT}%20passing/g" README.md
+
+          # Check if there are changes
+          if git diff --quiet README.md; then
+            echo "No badge changes needed"
+            exit 0
+          fi
+
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Commit and push
+          git add README.md
+          git commit -m "chore: update test count badges [skip ci]"
+          git push
 
   lint:
     name: Lint
