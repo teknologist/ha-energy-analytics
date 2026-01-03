@@ -13,14 +13,19 @@ export default defineConfig({
         'runtime-plugins/questdb.js',
       ],
       exclude: [
-        'node_modules',
+        '**/node_modules/**',
         'web/frontend/**',
         '**/*.test.js',
         '**/test/**',
         'e2e/**',
         // home-assistant.js requires real HA instance
         'runtime-plugins/home-assistant.js',
+        // Example files are documentation, not executable code
+        '**/*.example.js',
       ],
+      // Don't show 0% for files not covered by unit tests
+      // E2E coverage handles routes, merged in CI
+      skipFull: false,
     },
     include: ['**/*.test.js'],
     exclude: ['**/node_modules/**', 'web/frontend/**', 'e2e/**'],

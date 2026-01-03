@@ -50,24 +50,27 @@ npm run test:e2e       # Run E2E tests (requires app running)
 
 ### Coverage Configuration
 
-**Files included in coverage** (`vitest.config.js`):
-- `web/api/**/*.js` - API service code (lib utilities)
+**Files included in coverage:**
+- `web/api/**/*.js` - API service code (routes + utilities)
 - `runtime-plugins/mongodb.js` - MongoDB plugin
 - `runtime-plugins/questdb.js` - QuestDB plugin
 
 **Files excluded from coverage:**
 - `runtime-plugins/home-assistant.js` - requires real HA instance
-- `web/api/routes/**` - covered by E2E tests (Playwright)
 - `web/frontend/**` - frontend has separate testing
 - All test files (`*.test.js`, `test/**`)
 
-**Why only some files appear in coverage reports:**
-Coverage reports only show files that are actually exercised by tests. Files with 0% coverage or no test execution don't appear. The three typical files shown are:
-- `runtime-plugins/mongodb.js` - tested via integration tests
-- `runtime-plugins/questdb.js` - tested via integration tests
-- `web/api/lib/utils.js` - tested via unit tests
+**Consolidated Coverage (Unit + E2E):**
+CI merges unit test coverage with E2E test coverage:
+1. **Unit tests** (vitest) → cover `runtime-plugins/*.js`, `web/api/lib/*.js`
+2. **E2E tests** (Playwright) → cover `web/api/routes/*.js` via V8 coverage
+3. **Merge** → concatenates lcov files for complete coverage report
 
-Route files don't appear because they're excluded (E2E coverage via Playwright instead).
+**How E2E coverage works:**
+- Server runs with `NODE_V8_COVERAGE` to capture V8 coverage data
+- Must run wattpm directly (`node node_modules/wattpm/bin/cli.js dev`), not via npx
+- After tests, `c8 report` converts V8 JSON to lcov format
+- SIGINT signal triggers graceful shutdown and coverage write
 
 ### Writing Tests
 
@@ -90,11 +93,18 @@ docker compose up -d mongodb questdb
 # Run all tests
 npm run test:unit
 
-# Run with coverage
+# Run with coverage (unit tests only)
 npm run test:coverage
 
 # Run E2E (requires app running on port 3042)
 npm run test:e2e
+
+# Run E2E with coverage collection
+npm run test:e2e:coverage:server &  # Start server with V8 coverage
+npm run test:e2e                     # Run E2E tests
+kill -INT $(pgrep -f wattpm)         # Stop server (triggers coverage write)
+npm run test:e2e:coverage:report     # Generate lcov from V8 coverage
+npm run test:coverage:merge          # Merge unit + E2E coverage
 ```
 
 ## Architecture

@@ -127,21 +127,10 @@ jobs:
 
       - name: Start dev server with coverage
         run: |
-          mkdir -p logs coverage/e2e
-          # Set PORT to match expected test port
-          export PORT=3042
-          # Create a wrapper script to properly handle signals
-          cat > logs/start-server.sh << 'EOF'
-            # Set NODE_V8_COVERAGE environment variable for c8
-            export NODE_V8_COVERAGE=coverage/e2e
-            # Trap SIGINT and SIGTERM to generate coverage report
-            trap 'exit 0' INT TERM
-            # Run server with c8 coverage
-            npx c8 --clean --all --temp-directory=coverage/e2e/tmp --include='web/api/**/*.js' --include='runtime-plugins/mongodb.js' --include='runtime-plugins/questdb.js' --exclude='**/*.test.js' --exclude='**/test/**' --exclude='e2e/**' --exclude='web/frontend/**' --exclude='runtime-plugins/home-assistant.js' --reporter=json --reporter=lcov --reports-directory=./coverage/e2e wattpm dev
-          EOF
-          chmod +x logs/start-server.sh
-          # Start server in background with proper signal handling
-          logs/start-server.sh > logs/server.log 2>&1 &
+          mkdir -p logs coverage/e2e/v8
+          # Run wattpm directly (not via npx) so NODE_V8_COVERAGE propagates to workers
+          # This captures V8 coverage for all loaded JS files including routes
+          NODE_V8_COVERAGE=coverage/e2e/v8 PORT=3042 node node_modules/wattpm/bin/cli.js dev > logs/server.log 2>&1 &
           echo $! > logs/server.pid
           # Wait for server to be ready (use 127.0.0.1 to avoid IPv6 issues)
           for i in {1..60}; do
@@ -171,7 +160,7 @@ jobs:
             pid=$(cat logs/server.pid)
             if ps -p $pid > /dev/null; then
               echo "Stopping server (PID: $pid)"
-              # Send SIGINT (signal 2) to c8 so it writes coverage report
+              # Send SIGINT to trigger graceful shutdown and V8 coverage write
               kill -INT $pid
               # Wait for process to terminate and coverage to be written
               sleep 5
@@ -183,19 +172,30 @@ jobs:
               fi
             fi
           fi
-          # Check if E2E coverage was generated
-          echo "E2E coverage directory contents:"
-          ls -la coverage/e2e/ || true
-          if [ -f coverage/e2e/lcov.info ]; then
-            echo "E2E coverage lcov.info exists, lines:"
-            wc -l coverage/e2e/lcov.info
-          elif [ -f coverage/e2e/cov.json ]; then
-            echo "E2E coverage cov.json exists but lcov.info missing"
-            echo "Converting cov.json to lcov.info..."
-            # Convert v8 JSON to lcov format
-            npx c8 report --reporter=lcov --reports-directory=coverage/e2e --output-path=coverage/e2e/lcov.info
+          # Check if V8 coverage files were generated
+          echo "V8 coverage directory contents:"
+          ls -la coverage/e2e/v8/ || true
+          # Convert V8 coverage JSON to lcov format using c8
+          if ls coverage/e2e/v8/*.json 1> /dev/null 2>&1; then
+            echo "Converting V8 coverage to lcov format..."
+            npx c8 report \
+              --temp-directory=coverage/e2e/v8 \
+              --include='web/api/**/*.js' \
+              --include='runtime-plugins/mongodb.js' \
+              --include='runtime-plugins/questdb.js' \
+              --exclude='**/*.test.js' \
+              --exclude='**/node_modules/**' \
+              --exclude='**/test/**' \
+              --exclude='e2e/**' \
+              --exclude='web/frontend/**' \
+              --exclude='runtime-plugins/home-assistant.js' \
+              --reporter=lcov \
+              --reporter=text \
+              --report-dir=coverage/e2e
+            echo "E2E coverage report generated:"
+            wc -l coverage/e2e/lcov.info || true
           else
-            echo "Warning: No E2E coverage files found"
+            echo "Warning: No V8 coverage files found"
           fi
 
       - name: Merge unit and E2E coverage
