@@ -167,25 +167,36 @@ jobs:
             fi
           fi
           # Check if E2E coverage was generated
+          echo "E2E coverage directory contents:"
+          ls -la coverage/e2e/ || true
           if [ -f coverage/e2e/lcov.info ]; then
-            echo "E2E coverage generated successfully"
+            echo "E2E coverage lcov.info exists, lines:"
             wc -l coverage/e2e/lcov.info
+          elif [ -f coverage/e2e/cov.json ]; then
+            echo "E2E coverage cov.json exists but lcov.info missing"
+            echo "Converting cov.json to lcov.info..."
+            # Convert v8 JSON to lcov format
+            npx c8 report --reporter=lcov --reports-directory=coverage/e2e --output-path=coverage/e2e/lcov.info
           else
-            echo "Warning: E2E coverage file not found"
-            ls -la coverage/e2e/ || true
+            echo "Warning: No E2E coverage files found"
           fi
 
       - name: Merge unit and E2E coverage
         run: |
-          # Install lcov-result-merger for merging lcov files
-          npm install --save-dev lcov-result-merger
-          # Merge the lcov files
-          npx lcov-result-merger coverage/backup/unit.lcov coverage/e2e/lcov.info > coverage/lcov.info
-          echo "Coverage merged successfully"
-          # Display summary
-          npx c8 report --reporter=text
-        env:
-          NODE_V8_COVERAGE: coverage/e2e
+          echo "Unit coverage lines:"
+          wc -l coverage/backup/unit.lcov
+          echo "E2E coverage lines:"
+          if [ -f coverage/e2e/lcov.info ]; then
+            wc -l coverage/e2e/lcov.info
+            # Simply concatenate the lcov files (lcov format supports this)
+            cat coverage/backup/unit.lcov coverage/e2e/lcov.info > coverage/lcov.info
+            echo "Coverage merged successfully"
+            echo "Merged coverage lines:"
+            wc -l coverage/lcov.info
+          else
+            echo "E2E coverage not found, using unit coverage only"
+            cp coverage/backup/unit.lcov coverage/lcov.info
+          fi
 
       - name: Upload coverage to PR
         uses: romeovs/lcov-reporter-action@v0.4.0
