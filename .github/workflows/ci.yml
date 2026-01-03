@@ -152,6 +152,8 @@ jobs:
             echo "Waiting for server... ($i/60)"
             sleep 2
           done
+        env:
+          PORT: 3042
 
       - name: Run E2E tests
         run: npm run test:e2e
