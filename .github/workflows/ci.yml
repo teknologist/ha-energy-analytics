@@ -94,7 +94,7 @@ jobs:
           HA_TOKEN: ${{ secrets.HA_TEST_TOKEN || 'test_token_for_ci' }}
 
       - name: Upload coverage to PR
-        uses: romeovs/lcov-reporter-action@v0
+        uses: romeovs/lcov-reporter-action@v0.4.0
         with:
           lcov-file: ./coverage/lcov.info
           github-token: ${{ secrets.GITHUB_TOKEN }}
