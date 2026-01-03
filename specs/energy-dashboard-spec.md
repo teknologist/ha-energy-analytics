@@ -98,7 +98,7 @@ flowchart LR
     end
 
     subgraph Reconciliation["Reconciliation"]
-        Heartbeat["5-min Heartbeat<br/>Check"]
+        Heartbeat["3-min Heartbeat<br/>Check"]
         Hourly["Hourly Backfill"]
         Startup["Startup Gap<br/>Recovery"]
     end
@@ -136,7 +136,7 @@ flowchart LR
 flowchart TB
     subgraph Layers["Three Layers of Data Integrity"]
         L1["Layer 1: Event Stream<br/>Real-time capture via WebSocket"]
-        L2["Layer 2: Heartbeat Check<br/>Every 5 min - detect stale connections"]
+        L2["Layer 2: Heartbeat Check<br/>Every 3 min - detect stale connections"]
         L3["Layer 3: Hourly Reconciliation<br/>Fetch HA statistics to fill gaps"]
     end
 
@@ -321,7 +321,7 @@ HA_TOKEN=your_long_lived_access_token_here
 
 **Collection: `syncLog`**
 ```javascript
-// History of data sync operations
+// History of data sync operations (auto-expires after 7 days via TTL index)
 {
   _id: ObjectId("..."),
   entityId: "sensor.home_power",
@@ -331,9 +331,18 @@ HA_TOKEN=your_long_lived_access_token_here
   recordsSynced: 24,
   status: "success", // success | partial | failed
   errorMessage: null,
-  createdAt: ISODate("2025-01-02T10:00:00Z")
+  createdAt: ISODate("2025-01-02T10:00:00Z")  // Required for TTL index
 }
 ```
+
+> **TTL Index**: The `syncLog` collection has a TTL index on `createdAt` that automatically deletes documents after 7 days. This prevents unbounded growth while retaining recent history for debugging.
+>
+> ```javascript
+> await db.collection('syncLog').createIndex(
+>   { createdAt: 1 },
+>   { expireAfterSeconds: 7 * 24 * 60 * 60 }  // 7 days
+> );
+> ```
 
 ### QuestDB Tables
 
@@ -888,7 +897,7 @@ sequenceDiagram
         end
     end
 
-    loop Every 5 minutes
+    loop Every 3 minutes
         ER->>DB: Check last_event_at
         alt Stale (> 2 min)
             ER->>WS: Force reconnect
@@ -1069,7 +1078,7 @@ async function eventRecorderPlugin(fastify, options) {
 
   // Periodic reconciliation intervals
   const HOURLY_SYNC_INTERVAL = 60 * 60 * 1000; // 1 hour
-  const HEARTBEAT_INTERVAL = 5 * 60 * 1000;    // 5 minutes
+  const HEARTBEAT_INTERVAL = 3 * 60 * 1000;    // 3 minutes
   const STALE_THRESHOLD = 2 * 60 * 1000;       // 2 minutes
 
   let hourlyTimer = null;
@@ -1950,6 +1959,16 @@ function SettingsPage() {
       }
     ]
   },
+  "scheduler": [
+    {
+      "name": "hourly-backfill",
+      "cron": "0 * * * *",
+      "callbackUrl": "http://recorder.plt.local/backfill/trigger",
+      "method": "POST",
+      "maxRetry": 3,
+      "enabled": true
+    }
+  ],
   "autoload": {
     "path": "./web",
     "exclude": []
@@ -1963,7 +1982,9 @@ function SettingsPage() {
 }
 ```
 
-> **Note**: The `encapsulate: false` option ensures decorators (`fastify.mongo`, `fastify.questdb`, `fastify.ha`) propagate to all child services. See `specs/platformatic-watt-shared-db-plugin.md` for details.
+> **Notes**:
+> - `encapsulate: false` ensures decorators (`fastify.mongo`, `fastify.questdb`, `fastify.ha`) propagate to all child services. See `specs/platformatic-watt-shared-db-plugin.md` for details.
+> - The `scheduler` section uses Platformatic's built-in scheduler to trigger hourly backfill via HTTP callback to the recorder service.
 
 **File: `package.json`**
 ```json
@@ -2017,6 +2038,35 @@ npm run dev
 ### 4. Access the Dashboard
 
 Open http://localhost:3042/dashboard
+
+---
+
+## API Conventions
+
+### Response Format
+
+All API endpoints return a canonical response format with degraded fallback support:
+
+```javascript
+// Success response
+{ success: true, data: { ... } }
+
+// Success with degraded data (HA unavailable, using cache)
+{ success: true, data: { ... }, degraded: true, degradedReason: "Home Assistant unavailable" }
+
+// Error response
+{ success: false, error: "Error message" }
+```
+
+**Degraded Fallback Pattern**: When Home Assistant is unavailable but cached data exists, return HTTP 200 with `degraded: true` instead of HTTP 503. This allows the frontend to display cached data while indicating the degraded state.
+
+### Parameter Naming
+
+All API parameters use **snake_case** for consistency:
+
+- **Query parameters**: `entity_id`, `start_time`, `end_time`
+- **Path parameters**: `:entity_id`
+- **Response fields**: `entity_id`, `last_updated`, `unit_of_measurement`
 
 ---
 

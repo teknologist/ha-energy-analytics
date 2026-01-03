@@ -71,7 +71,7 @@ flowchart LR
     Manual --> Stats
 
     subgraph Reconciliation
-        Heartbeat[5-min check]
+        Heartbeat[3-min check]
         Hourly[Hourly backfill]
     end
 
@@ -235,7 +235,8 @@ The Recorder service (`web/recorder/`) runs as an independent Platformatic Watt 
 
 - **WebSocket subscription**: Listens to `state_changed` events from Home Assistant via shared `fastify.ha` plugin
 - **Real-time ingestion**: Energy readings stored immediately to QuestDB as events occur
-- **Heartbeat checks**: Every 5 minutes, verifies subscription is active
+- **Heartbeat checks**: Every 3 minutes, verifies subscription is active
+- **Sync log cleanup**: TTL index auto-expires sync logs after 7 days
 - **Hourly backfill**: Reconciles any gaps by fetching from HA recorder API
 
 No cron jobs needed - sync is fully automatic once connected to Home Assistant.

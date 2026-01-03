@@ -110,7 +110,7 @@ flowchart LR
     Manual --> Stats
 
     subgraph Reconciliation
-        Heartbeat[5-min check]
+        Heartbeat[3-min check]
         Hourly[Hourly backfill]
     end
 
@@ -130,6 +130,72 @@ flowchart LR
 - **QuestDB tables**: `energy_readings`, `energy_statistics`
 - Frontend served at `/dashboard`, API at `/api/*`
 - HA WebSocket: `ws://{HA_URL}/api/websocket` with token auth
+
+## API Conventions
+
+### Canonical Response Format
+
+All API responses use a consistent format with degraded fallback support:
+
+```javascript
+// Success response
+{ success: true, data: { ... } }
+
+// Success with degraded data (HA unavailable, using cache)
+{ success: true, data: { ... }, degraded: true, degradedReason: "Home Assistant unavailable" }
+
+// Error response
+{ success: false, error: "Error message" }
+```
+
+When Home Assistant is unavailable, return HTTP 200 with cached data and `degraded: true` flag instead of HTTP 503.
+
+### Parameter Naming Convention
+
+All API parameters use **snake_case**:
+- Query parameters: `entity_id`, `start_time`, `end_time`
+- Path parameters: `:entity_id`
+- Response fields: `entity_id`, `last_updated`, `unit_of_measurement`
+
+## MongoDB Data Management
+
+### Collections and TTL
+
+| Collection | Purpose | Retention |
+|------------|---------|-----------|
+| `settings` | App configuration | Permanent |
+| `entities` | Cached entity metadata | Upsert (no growth) |
+| `subscriptionState` | WebSocket subscription state | Permanent |
+| `syncLog` | Sync operation logs | 7 days (TTL index) |
+
+### TTL Index for syncLog
+
+```javascript
+// Auto-created in event-recorder.js onReady hook
+await db.collection('syncLog').createIndex(
+  { createdAt: 1 },
+  { expireAfterSeconds: 7 * 24 * 60 * 60 }  // 7 days
+);
+```
+
+## Scheduled Tasks
+
+Platformatic Watt's built-in scheduler handles recurring tasks (configured in `watt.json`):
+
+```json
+{
+  "scheduler": [
+    {
+      "name": "hourly-backfill",
+      "cron": "0 * * * *",
+      "callbackUrl": "http://recorder.plt.local/backfill/trigger",
+      "method": "POST",
+      "maxRetry": 3,
+      "enabled": true
+    }
+  ]
+}
+```
 
 ## Environment Variables
 
@@ -180,6 +246,19 @@ energy-tracker/
 **Add new aggregations**: Use QuestDB's `SAMPLE BY` in `runtime-plugins/questdb.js`
 **Add new routes**: Create files in `web/api/routes/` - auto-loaded via platformatic.json
 **Add shared plugins**: Create in `runtime-plugins/` and register in root `watt.json`
+
+## Critical Rules
+
+### Test Failures
+
+**NEVER change assertions just to make tests pass naively.** When a test fails:
+
+1. **Investigate** - Understand why the test is failing
+2. **Determine the root cause** - Is the code wrong or is the assertion wrong?
+3. **Fix appropriately**:
+   - If the code is wrong → fix the code
+   - If the assertion was incorrect → fix the assertion with clear justification
+4. **Never blindly modify assertions** without understanding the underlying issue
 
 ## Linear Integration
 
