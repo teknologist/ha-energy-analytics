@@ -246,6 +246,7 @@ jobs:
 
       - name: Upload coverage to PR
         uses: romeovs/lcov-reporter-action@v0.4.0
+        continue-on-error: true
         with:
           lcov-file: ./coverage/lcov.info
           github-token: ${{ secrets.GITHUB_TOKEN }}
