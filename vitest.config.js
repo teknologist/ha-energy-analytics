@@ -9,6 +9,7 @@ export default defineConfig({
       reporter: ['text', 'json', 'html', 'lcov'],
       include: [
         'web/api/**/*.js',
+        'web/recorder/**/*.js',
         'runtime-plugins/mongodb.js',
         'runtime-plugins/questdb.js',
       ],

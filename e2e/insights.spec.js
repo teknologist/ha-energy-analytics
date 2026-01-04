@@ -1214,4 +1214,126 @@ test.describe('Insights API Endpoints', () => {
       }
     });
   });
+
+  test.describe('GET /api/insights/heatmap', () => {
+    test('should return heatmap data with default parameters', async ({
+      request,
+    }) => {
+      const response = await request.get('/api/insights/heatmap');
+
+      if (response.ok()) {
+        const body = await response.json();
+        expect(body.success).toBeTruthy();
+        expect(body.data).toBeDefined();
+        expect(body.data).toHaveProperty('period', 'week');
+        expect(body.data).toHaveProperty('time_range');
+        expect(body.data).toHaveProperty('heatmap');
+        expect(Array.isArray(body.data.heatmap)).toBeTruthy();
+        expect(body.data).toHaveProperty('max_consumption');
+        expect(body.data).toHaveProperty('min_consumption');
+        expect(response.headers()['x-response-time']).toMatch(/^\d+ms$/);
+
+        // Verify heatmap data structure
+        if (body.data.heatmap.length > 0) {
+          const entry = body.data.heatmap[0];
+          expect(entry).toHaveProperty('day');
+          expect(entry).toHaveProperty('hour');
+          expect(entry).toHaveProperty('consumption');
+
+          // day should be 0-6 (Sunday-Saturday)
+          expect(entry.day).toBeGreaterThanOrEqual(0);
+          expect(entry.day).toBeLessThanOrEqual(6);
+
+          // hour should be 0-23
+          expect(entry.hour).toBeGreaterThanOrEqual(0);
+          expect(entry.hour).toBeLessThanOrEqual(23);
+        }
+      } else {
+        expect([400, 500, 503]).toContain(response.status());
+      }
+    });
+
+    test('should handle day period parameter', async ({ request }) => {
+      const response = await request.get('/api/insights/heatmap', {
+        params: { period: 'day' },
+      });
+
+      if (response.ok()) {
+        const body = await response.json();
+        expect(body.success).toBeTruthy();
+        expect(body.data.period).toBe('day');
+        expect(body.data.time_range).toBeDefined();
+        expect(Array.isArray(body.data.heatmap)).toBeTruthy();
+      } else {
+        expect([400, 500, 503]).toContain(response.status());
+      }
+    });
+
+    test('should handle week period parameter', async ({ request }) => {
+      const response = await request.get('/api/insights/heatmap', {
+        params: { period: 'week' },
+      });
+
+      if (response.ok()) {
+        const body = await response.json();
+        expect(body.success).toBeTruthy();
+        expect(body.data.period).toBe('week');
+      } else {
+        expect([400, 500, 503]).toContain(response.status());
+      }
+    });
+
+    test('should handle month period parameter', async ({ request }) => {
+      const response = await request.get('/api/insights/heatmap', {
+        params: { period: 'month' },
+      });
+
+      if (response.ok()) {
+        const body = await response.json();
+        expect(body.success).toBeTruthy();
+        expect(body.data.period).toBe('month');
+      } else {
+        expect([400, 500, 503]).toContain(response.status());
+      }
+    });
+
+    test('should return valid min and max consumption values', async ({
+      request,
+    }) => {
+      const response = await request.get('/api/insights/heatmap');
+
+      if (response.ok()) {
+        const body = await response.json();
+        expect(body.success).toBeTruthy();
+
+        if (body.data.heatmap.length > 0) {
+          expect(body.data.max_consumption).toBeDefined();
+          expect(body.data.min_consumption).toBeDefined();
+          expect(typeof body.data.max_consumption).toBe('number');
+          expect(typeof body.data.min_consumption).toBe('number');
+          expect(body.data.max_consumption).toBeGreaterThanOrEqual(
+            body.data.min_consumption
+          );
+        } else {
+          // Empty data should have zero values
+          expect(body.data.max_consumption).toBe(0);
+          expect(body.data.min_consumption).toBe(0);
+        }
+      } else {
+        expect([400, 500, 503]).toContain(response.status());
+      }
+    });
+
+    test('should include response time header', async ({ request }) => {
+      const response = await request.get('/api/insights/heatmap');
+
+      if (response.ok()) {
+        const responseTime = response.headers()['x-response-time'];
+        expect(responseTime).toBeDefined();
+        expect(responseTime).toMatch(/^\d+ms$/);
+      } else {
+        expect([400, 500, 503]).toContain(response.status());
+      }
+    });
+  });
 });

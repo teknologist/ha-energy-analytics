@@ -76,6 +76,84 @@ describe.skipIf(!QUESTDB_AVAILABLE)('QuestDB Plugin - Initialization', () => {
 
     await fastify.close();
   });
+
+  it('should expose sanitize helpers', async () => {
+    const fastify = await buildFastify();
+
+    expect(fastify.questdb.sanitize).toBeTruthy();
+    expect(typeof fastify.questdb.sanitize.entityId).toBe('function');
+    expect(typeof fastify.questdb.sanitize.timestamp).toBe('function');
+    expect(typeof fastify.questdb.sanitize.limit).toBe('function');
+    expect(typeof fastify.questdb.sanitize.period).toBe('function');
+
+    await fastify.close();
+  });
+
+  it('should sanitize entity IDs correctly', async () => {
+    const fastify = await buildFastify();
+
+    // Valid entity IDs
+    expect(fastify.questdb.sanitize.entityId('sensor.energy')).toBe(
+      'sensor.energy'
+    );
+    expect(fastify.questdb.sanitize.entityId('binary.sensor')).toBe(
+      'binary.sensor'
+    );
+
+    // Invalid entity IDs should throw
+    expect(() => fastify.questdb.sanitize.entityId('')).toThrow();
+    expect(() => fastify.questdb.sanitize.entityId('invalid')).toThrow();
+    expect(() => fastify.questdb.sanitize.entityId(123)).toThrow();
+
+    await fastify.close();
+  });
+
+  it('should sanitize timestamps correctly', async () => {
+    const fastify = await buildFastify();
+
+    // Valid timestamps
+    const isoString = '2024-01-01T00:00:00.000Z';
+    expect(fastify.questdb.sanitize.timestamp(isoString)).toBe(isoString);
+
+    const date = new Date('2024-01-01T00:00:00.000Z');
+    expect(fastify.questdb.sanitize.timestamp(date)).toBe(isoString);
+
+    // Invalid timestamps should throw
+    expect(() => fastify.questdb.sanitize.timestamp('invalid')).toThrow();
+    expect(() => fastify.questdb.sanitize.timestamp(123)).toThrow();
+
+    await fastify.close();
+  });
+
+  it('should sanitize limits correctly', async () => {
+    const fastify = await buildFastify();
+
+    // Valid limits
+    expect(fastify.questdb.sanitize.limit(100)).toBe(100);
+    expect(fastify.questdb.sanitize.limit(1000000)).toBe(100000); // capped at max
+    expect(fastify.questdb.sanitize.limit('50')).toBe(50);
+
+    // Invalid limits should throw
+    expect(() => fastify.questdb.sanitize.limit(-1)).toThrow();
+    expect(() => fastify.questdb.sanitize.limit(0)).toThrow();
+    expect(() => fastify.questdb.sanitize.limit('invalid')).toThrow();
+
+    await fastify.close();
+  });
+
+  it('should sanitize periods correctly', async () => {
+    const fastify = await buildFastify();
+
+    // Valid periods
+    expect(fastify.questdb.sanitize.period('hour')).toBe('hour');
+    expect(fastify.questdb.sanitize.period('day')).toBe('day');
+
+    // Invalid periods should throw
+    expect(() => fastify.questdb.sanitize.period('invalid')).toThrow();
+    expect(() => fastify.questdb.sanitize.period('')).toThrow();
+
+    await fastify.close();
+  });
 });
 
 describe.skipIf(!QUESTDB_AVAILABLE)('QuestDB Plugin - Schema Creation', () => {

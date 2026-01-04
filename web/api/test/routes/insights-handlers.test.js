@@ -1398,4 +1398,373 @@ describe('insights.js - Route Handlers', () => {
       }
     });
   });
+
+  describe('GET /api/insights/heatmap', () => {
+    let handler;
+
+    beforeEach(async () => {
+      await insightsRoutes(mockFastify);
+      const routeCall = mockFastify.get.mock.calls.find(
+        (call) => call[0] === '/api/insights/heatmap'
+      );
+      handler = routeCall[2];
+    });
+
+    it('should return heatmap data with day/hour consumption', async () => {
+      mockRequest = createMockRequest({ period: 'week' });
+
+      const dataset = [
+        [0, 9, 100.5], // Sunday 9am
+        [1, 18, 200.0], // Monday 6pm
+        [2, 12, 150.25], // Tuesday noon
+      ];
+
+      mockFastify.questdb.query.mockResolvedValue({ dataset });
+
+      const result = await handler(mockRequest, mockReply);
+
+      expect(result.success).toBe(true);
+      expect(result.data.period).toBe('week');
+      expect(result.data.heatmap).toHaveLength(3);
+      expect(result.data.heatmap[0]).toMatchObject({
+        day: 0,
+        hour: 9,
+        consumption: 100.5,
+      });
+      expect(result.data.max_consumption).toBe(200.0);
+      expect(result.data.min_consumption).toBe(100.5);
+      expect(mockReply.header).toHaveBeenCalledWith(
+        'X-Response-Time',
+        expect.any(String)
+      );
+    });
+
+    it('should handle empty dataset', async () => {
+      mockRequest = createMockRequest({ period: 'day' });
+
+      mockFastify.questdb.query.mockResolvedValue({ dataset: [] });
+
+      const result = await handler(mockRequest, mockReply);
+
+      expect(result.success).toBe(true);
+      expect(result.data.heatmap).toHaveLength(0);
+      expect(result.data.max_consumption).toBe(0);
+      expect(result.data.min_consumption).toBe(0);
+    });
+
+    it('should handle all valid periods', async () => {
+      const periods = ['day', 'week', 'month'];
+
+      for (const period of periods) {
+        vi.clearAllMocks();
+        mockFastify = createMockFastify();
+        mockReply = createMockReply();
+        await insightsRoutes(mockFastify);
+
+        const routeCall = mockFastify.get.mock.calls.find(
+          (call) => call[0] === '/api/insights/heatmap'
+        );
+        handler = routeCall[2];
+
+        mockRequest = createMockRequest({ period });
+
+        mockFastify.questdb.query.mockResolvedValue({
+          dataset: [[0, 12, 100.0]],
+        });
+
+        const result = await handler(mockRequest, mockReply);
+
+        expect(result.success).toBe(true);
+        expect(result.data.period).toBe(period);
+        expect(result.data.time_range).toBeDefined();
+      }
+    });
+
+    it('should return 500 on database error', async () => {
+      mockRequest = createMockRequest({ period: 'week' });
+
+      mockFastify.questdb.query.mockRejectedValue(new Error('Query failed'));
+
+      await handler(mockRequest, mockReply);
+
+      expect(mockReply.code).toHaveBeenCalledWith(500);
+      expect(mockReply.send).toHaveBeenCalledWith({
+        success: false,
+        error: 'Query failed',
+      });
+      expect(mockFastify.log.error).toHaveBeenCalled();
+    });
+
+    it('should sanitize timestamps in SQL query', async () => {
+      mockRequest = createMockRequest({ period: 'week' });
+
+      mockFastify.questdb.query.mockResolvedValue({
+        dataset: [[0, 12, 100.0]],
+      });
+
+      await handler(mockRequest, mockReply);
+
+      expect(mockFastify.questdb.sanitize.timestamp).toHaveBeenCalled();
+    });
+
+    it('should include response time header', async () => {
+      mockRequest = createMockRequest({ period: 'month' });
+
+      mockFastify.questdb.query.mockResolvedValue({
+        dataset: [[3, 15, 250.0]],
+      });
+
+      await handler(mockRequest, mockReply);
+
+      expect(mockReply.header).toHaveBeenCalledWith(
+        'X-Response-Time',
+        expect.stringMatching(/^\d+ms$/)
+      );
+    });
+  });
+
+  describe('Null Dataset Scenarios (null coalescing branches)', () => {
+    let handler;
+
+    beforeEach(async () => {
+      await insightsRoutes(mockFastify);
+    });
+
+    describe('GET /api/insights/top-consumers', () => {
+      beforeEach(async () => {
+        const routeCall = mockFastify.get.mock.calls.find(
+          (call) => call[0] === '/api/insights/top-consumers'
+        );
+        handler = routeCall[2];
+      });
+
+      it('should handle null/undefined dataset from top consumers query', async () => {
+        mockRequest = createMockRequest({ period: 'week', limit: 5 });
+
+        // Return result without dataset property (null coalescing branch)
+        mockFastify.questdb.query
+          .mockResolvedValueOnce({}) // No dataset property
+          .mockResolvedValueOnce({ dataset: [[0]] });
+
+        mockFastify.mongo.getEntities.mockResolvedValue([]);
+
+        const result = await handler(mockRequest, mockReply);
+
+        expect(result.success).toBe(true);
+        expect(result.data.top_consumers).toHaveLength(0);
+      });
+
+      it('should handle null/undefined dataset from total query', async () => {
+        mockRequest = createMockRequest({ period: 'week', limit: 5 });
+
+        // Return result without dataset property for total query
+        mockFastify.questdb.query
+          .mockResolvedValueOnce({ dataset: [['sensor.test', 100.0]] })
+          .mockResolvedValueOnce({}); // No dataset property for total
+
+        mockFastify.mongo.getEntities.mockResolvedValue([
+          {
+            entityId: 'sensor.test',
+            friendlyName: 'Test',
+            unitOfMeasurement: 'kWh',
+          },
+        ]);
+
+        const result = await handler(mockRequest, mockReply);
+
+        expect(result.success).toBe(true);
+        // When total dataset is null, total_consumption should be 0
+        expect(result.data.total_consumption).toBe(0);
+      });
+
+      it('should handle dataset: null explicitly', async () => {
+        mockRequest = createMockRequest({ period: 'week', limit: 5 });
+
+        mockFastify.questdb.query
+          .mockResolvedValueOnce({ dataset: null })
+          .mockResolvedValueOnce({ dataset: [[0]] });
+
+        mockFastify.mongo.getEntities.mockResolvedValue([]);
+
+        const result = await handler(mockRequest, mockReply);
+
+        expect(result.success).toBe(true);
+        expect(result.data.top_consumers).toHaveLength(0);
+      });
+    });
+
+    describe('GET /api/insights/peak', () => {
+      beforeEach(async () => {
+        const routeCall = mockFastify.get.mock.calls.find(
+          (call) => call[0] === '/api/insights/peak'
+        );
+        handler = routeCall[2];
+      });
+
+      it('should handle null/undefined dataset from peak query', async () => {
+        mockRequest = createMockRequest({ period: 'week' });
+
+        // Return result without dataset property
+        mockFastify.questdb.query.mockResolvedValue({});
+
+        const result = await handler(mockRequest, mockReply);
+
+        expect(result.success).toBe(true);
+        expect(result.data.peak).toBeNull();
+      });
+
+      it('should handle dataset: null explicitly', async () => {
+        mockRequest = createMockRequest({ period: 'day' });
+
+        mockFastify.questdb.query.mockResolvedValue({ dataset: null });
+
+        const result = await handler(mockRequest, mockReply);
+
+        expect(result.success).toBe(true);
+        expect(result.data.peak).toBeNull();
+      });
+    });
+
+    describe('GET /api/insights/patterns', () => {
+      beforeEach(async () => {
+        const routeCall = mockFastify.get.mock.calls.find(
+          (call) => call[0] === '/api/insights/patterns'
+        );
+        handler = routeCall[2];
+      });
+
+      it('should handle null/undefined dataset from patterns query', async () => {
+        mockRequest = createMockRequest({ period: 'week' });
+
+        // Return result without dataset property
+        mockFastify.questdb.query.mockResolvedValue({});
+        mockFastify.mongo.getEntities.mockResolvedValue([]);
+
+        const result = await handler(mockRequest, mockReply);
+
+        expect(result.success).toBe(true);
+        expect(result.data.burst_consumers).toHaveLength(0);
+        expect(result.data.steady_consumers).toHaveLength(0);
+      });
+
+      it('should handle dataset: null explicitly', async () => {
+        mockRequest = createMockRequest({ period: 'day' });
+
+        mockFastify.questdb.query.mockResolvedValue({ dataset: null });
+        mockFastify.mongo.getEntities.mockResolvedValue([]);
+
+        const result = await handler(mockRequest, mockReply);
+
+        expect(result.success).toBe(true);
+        expect(result.data.burst_consumers).toHaveLength(0);
+        expect(result.data.steady_consumers).toHaveLength(0);
+      });
+    });
+
+    describe('GET /api/insights/breakdown', () => {
+      beforeEach(async () => {
+        const routeCall = mockFastify.get.mock.calls.find(
+          (call) => call[0] === '/api/insights/breakdown'
+        );
+        handler = routeCall[2];
+      });
+
+      it('should handle null/undefined dataset from breakdown query', async () => {
+        mockRequest = createMockRequest({ period: 'week' });
+
+        // Return result without dataset property
+        mockFastify.questdb.query.mockResolvedValue({});
+        mockFastify.mongo.getEntities.mockResolvedValue([]);
+
+        const result = await handler(mockRequest, mockReply);
+
+        expect(result.success).toBe(true);
+        expect(result.data.total_consumption).toBe(0);
+        expect(result.data.breakdown).toHaveLength(0);
+      });
+
+      it('should handle dataset: null explicitly', async () => {
+        mockRequest = createMockRequest({ period: 'month' });
+
+        mockFastify.questdb.query.mockResolvedValue({ dataset: null });
+        mockFastify.mongo.getEntities.mockResolvedValue([]);
+
+        const result = await handler(mockRequest, mockReply);
+
+        expect(result.success).toBe(true);
+        expect(result.data.total_consumption).toBe(0);
+        expect(result.data.breakdown).toHaveLength(0);
+      });
+    });
+
+    describe('GET /api/insights/timeline', () => {
+      beforeEach(async () => {
+        const routeCall = mockFastify.get.mock.calls.find(
+          (call) => call[0] === '/api/insights/timeline'
+        );
+        handler = routeCall[2];
+      });
+
+      it('should handle null/undefined dataset from timeline query', async () => {
+        mockRequest = createMockRequest({ period: 'week', group_by: 'hour' });
+
+        // Return result without dataset property
+        mockFastify.questdb.query.mockResolvedValue({});
+        mockFastify.mongo.getEntities.mockResolvedValue([]);
+
+        const result = await handler(mockRequest, mockReply);
+
+        expect(result.success).toBe(true);
+        expect(result.data.timeline).toHaveLength(0);
+      });
+
+      it('should handle dataset: null explicitly', async () => {
+        mockRequest = createMockRequest({ period: 'day', group_by: 'hour' });
+
+        mockFastify.questdb.query.mockResolvedValue({ dataset: null });
+        mockFastify.mongo.getEntities.mockResolvedValue([]);
+
+        const result = await handler(mockRequest, mockReply);
+
+        expect(result.success).toBe(true);
+        expect(result.data.timeline).toHaveLength(0);
+      });
+    });
+
+    describe('GET /api/insights/heatmap', () => {
+      beforeEach(async () => {
+        const routeCall = mockFastify.get.mock.calls.find(
+          (call) => call[0] === '/api/insights/heatmap'
+        );
+        handler = routeCall[2];
+      });
+
+      it('should handle null/undefined dataset from heatmap query', async () => {
+        mockRequest = createMockRequest({ period: 'week' });
+
+        // Return result without dataset property
+        mockFastify.questdb.query.mockResolvedValue({});
+
+        const result = await handler(mockRequest, mockReply);
+
+        expect(result.success).toBe(true);
+        expect(result.data.heatmap).toHaveLength(0);
+        expect(result.data.max_consumption).toBe(0);
+        expect(result.data.min_consumption).toBe(0);
+      });
+
+      it('should handle dataset: null explicitly', async () => {
+        mockRequest = createMockRequest({ period: 'day' });
+
+        mockFastify.questdb.query.mockResolvedValue({ dataset: null });
+
+        const result = await handler(mockRequest, mockReply);
+
+        expect(result.success).toBe(true);
+        expect(result.data.heatmap).toHaveLength(0);
+        expect(result.data.max_consumption).toBe(0);
+        expect(result.data.min_consumption).toBe(0);
+      });
+    });
+  });
 });

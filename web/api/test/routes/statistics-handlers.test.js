@@ -1261,5 +1261,29 @@ describe('statistics.js - Route Handlers', () => {
         error: 'Database error',
       });
     });
+
+    it('should handle synchronous error in request processing', async () => {
+      // Mock an error that occurs outside the per-entity try-catch
+      // This simulates a scenario where request validation or setup fails
+      mockQuestDB.getDailySummary.mockImplementation(() => {
+        throw new Error('Unexpected error');
+      });
+
+      const response = await fastify.inject({
+        method: 'POST',
+        url: '/api/statistics/compare',
+        payload: {
+          entity_ids: ['sensor.energy_1'],
+        },
+      });
+
+      // The per-entity error handling should catch this and return success: true
+      expect(response.statusCode).toBe(200);
+      const json = response.json();
+      expect(json.success).toBe(true);
+      expect(json.data.comparison['sensor.energy_1']).toEqual({
+        error: 'Unexpected error',
+      });
+    });
   });
 });

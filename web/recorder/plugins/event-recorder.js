@@ -1,4 +1,18 @@
 import fp from 'fastify-plugin';
+import {
+  HEARTBEAT_INTERVAL_MS,
+  MAX_IDLE_TIME_MS,
+  HOURLY_INTERVAL_MS,
+  DEFAULT_BACKFILL_HOURS,
+  SEEDING_DAYS,
+  SYNC_LOG_TTL_SECONDS,
+  isEnergyEntity,
+  parseStateValue,
+  retry,
+  transformStatistics,
+  createEnergyReading,
+  needsReconnection,
+} from '../lib/utils.js';
 
 /**
  * Event Recorder Plugin
@@ -11,45 +25,6 @@ import fp from 'fastify-plugin';
  *
  * @module plugins/event-recorder
  */
-
-// ============================================================================
-// Time Constants (in milliseconds)
-// ============================================================================
-
-/** Heartbeat check interval - 3 minutes */
-const HEARTBEAT_INTERVAL_MS = 3 * 60 * 1000;
-
-/** Maximum idle time before reconnection - 5 minutes */
-const MAX_IDLE_TIME_MS = 5 * 60 * 1000;
-
-/** Hourly backfill interval - 1 hour */
-const HOURLY_INTERVAL_MS = 60 * 60 * 1000;
-
-/** Default backfill lookback period - 24 hours */
-const DEFAULT_BACKFILL_HOURS = 24;
-
-/** Initial seeding lookback period - 30 days */
-const SEEDING_DAYS = 30;
-
-/** TTL for sync log entries - 7 days */
-const SYNC_LOG_TTL_SECONDS = 7 * 24 * 60 * 60;
-
-// ============================================================================
-// Retry Configuration
-// ============================================================================
-
-/** Default maximum retry attempts */
-const DEFAULT_MAX_RETRIES = 3;
-
-/** Base delay for exponential backoff - 1 second */
-const DEFAULT_BASE_DELAY_MS = 1000;
-
-// ============================================================================
-// Valid Energy Units
-// ============================================================================
-
-/** Valid units of measurement for energy entities */
-const VALID_ENERGY_UNITS = ['kWh', 'Wh', 'W', 'kW'];
 
 // ============================================================================
 // Type Definitions
@@ -87,74 +62,6 @@ const VALID_ENERGY_UNITS = ['kWh', 'Wh', 'W', 'kW'];
  * @property {number|null} max - Maximum value
  * @property {number} timestamp - Timestamp in nanoseconds
  */
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-/**
- * Check if an entity is energy-related
- * @param {Object} state - Entity state object
- * @returns {boolean} True if entity is energy-related
- */
-function isEnergyEntity(state) {
-  const deviceClass = state.attributes?.device_class?.toLowerCase();
-  const unit = state.attributes?.unit_of_measurement;
-
-  return (
-    deviceClass === 'energy' ||
-    deviceClass === 'power' ||
-    VALID_ENERGY_UNITS.includes(unit)
-  );
-}
-
-/**
- * Parse state value to number
- * @param {*} value - State value
- * @returns {number|null}
- */
-function parseStateValue(value) {
-  if (
-    value === null ||
-    value === undefined ||
-    value === 'unknown' ||
-    value === 'unavailable'
-  ) {
-    return null;
-  }
-  const parsed = parseFloat(value);
-  return isNaN(parsed) ? null : parsed;
-}
-
-/**
- * Retry function with exponential backoff
- * @param {Function} fn - Function to retry
- * @param {number} maxRetries - Maximum retry attempts (default: 3)
- * @param {number} baseDelay - Base delay in ms (default: 1000)
- * @returns {Promise<*>}
- */
-async function retry(
-  fn,
-  maxRetries = DEFAULT_MAX_RETRIES,
-  baseDelay = DEFAULT_BASE_DELAY_MS
-) {
-  let lastError;
-
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (error) {
-      lastError = error;
-
-      if (attempt < maxRetries - 1) {
-        const delay = baseDelay * Math.pow(2, attempt);
-        await new Promise((resolve) => setTimeout(resolve, delay));
-      }
-    }
-  }
-
-  throw lastError;
-}
 
 async function eventRecorderPlugin(fastify, options) {
   const logger = fastify.log;
@@ -312,20 +219,8 @@ async function eventRecorderPlugin(fastify, options) {
         const statsToWrite = [];
 
         for (const [entityId, statsList] of Object.entries(statistics)) {
-          if (!Array.isArray(statsList)) continue;
-
-          for (const stat of statsList) {
-            statsToWrite.push({
-              entity_id: entityId,
-              period: 'hour',
-              state: stat.state != null ? parseFloat(stat.state) : null,
-              sum: stat.sum != null ? parseFloat(stat.sum) : null,
-              mean: stat.mean != null ? parseFloat(stat.mean) : null,
-              min: stat.min != null ? parseFloat(stat.min) : null,
-              max: stat.max != null ? parseFloat(stat.max) : null,
-              timestamp: new Date(stat.start).getTime() * 1000000, // nanoseconds
-            });
-          }
+          const transformed = transformStatistics(entityId, statsList, 'hour');
+          statsToWrite.push(...transformed);
         }
 
         if (statsToWrite.length > 0) {
@@ -409,26 +304,16 @@ async function eventRecorderPlugin(fastify, options) {
         return;
       }
 
-      // Parse state values
-      const currentState = parseStateValue(new_state.state);
-      const previousState = old_state ? parseStateValue(old_state.state) : null;
+      // Create energy reading from state change
+      const reading = createEnergyReading(entity_id, new_state, old_state);
 
-      if (currentState === null) {
+      if (!reading) {
         return; // Skip unavailable/unknown states
       }
 
       // Update last event timestamp
       state.lastEventAt = new Date();
       state.eventCount++;
-
-      // Write to QuestDB
-      const reading = {
-        entity_id,
-        state: currentState,
-        previous_state: previousState,
-        attributes: new_state.attributes,
-        timestamp: new Date(new_state.last_changed).getTime() * 1000000, // nanoseconds
-      };
 
       await retry(async () => {
         await fastify.questdb.writeReadings([reading]);
@@ -456,43 +341,10 @@ async function eventRecorderPlugin(fastify, options) {
    * Start heartbeat monitor
    */
   function startHeartbeat() {
-    state.heartbeatTimer = setInterval(async () => {
-      try {
-        const now = new Date();
-        const timeSinceLastEvent = state.lastEventAt
-          ? now.getTime() - state.lastEventAt.getTime()
-          : Infinity;
-
-        logger.debug(
-          {
-            timeSinceLastEvent,
-            eventCount: state.eventCount,
-            errorCount: state.errorCount,
-          },
-          'Heartbeat check'
-        );
-
-        // Check if we haven't received events in over MAX_IDLE_TIME_MS
-        if (timeSinceLastEvent > MAX_IDLE_TIME_MS) {
-          logger.warn(
-            { idleMs: MAX_IDLE_TIME_MS },
-            'No events received - reconnecting to Home Assistant'
-          );
-
-          // Reconnect to Home Assistant
-          await fastify.ha.reconnect();
-
-          // Resubscribe to events
-          await subscribeToEvents();
-
-          // Trigger backfill to catch up on missed data
-          await performBackfill('heartbeat');
-        }
-      } catch (error) {
-        logger.error({ err: error }, 'Heartbeat check failed');
-        state.errorCount++;
-      }
-    }, HEARTBEAT_INTERVAL_MS);
+    state.heartbeatTimer = setInterval(
+      async () => executeHeartbeat(),
+      HEARTBEAT_INTERVAL_MS
+    );
 
     logger.info(
       { intervalMs: HEARTBEAT_INTERVAL_MS },
@@ -501,22 +353,67 @@ async function eventRecorderPlugin(fastify, options) {
   }
 
   /**
+   * Execute heartbeat check - tests for reconnection and backfill
+   * Extracted for testability
+   */
+  async function executeHeartbeat() {
+    try {
+      logger.debug(
+        {
+          lastEventAt: state.lastEventAt,
+          eventCount: state.eventCount,
+          errorCount: state.errorCount,
+        },
+        'Heartbeat check'
+      );
+
+      // Check if we haven't received events in over MAX_IDLE_TIME_MS
+      if (needsReconnection(state.lastEventAt)) {
+        logger.warn(
+          { idleMs: MAX_IDLE_TIME_MS },
+          'No events received - reconnecting to Home Assistant'
+        );
+
+        // Reconnect to Home Assistant
+        await fastify.ha.reconnect();
+
+        // Resubscribe to events
+        await subscribeToEvents();
+
+        // Trigger backfill to catch up on missed data
+        await performBackfill('heartbeat');
+      }
+    } catch (error) {
+      logger.error({ err: error }, 'Heartbeat check failed');
+      state.errorCount++;
+    }
+  }
+
+  /**
    * Schedule hourly backfill
    */
   function scheduleHourlyBackfill() {
-    state.hourlyTimer = setInterval(async () => {
-      try {
-        await performBackfill('hourly');
-      } catch (error) {
-        logger.error({ err: error }, 'Hourly backfill failed');
-        state.errorCount++;
-      }
-    }, HOURLY_INTERVAL_MS);
+    state.hourlyTimer = setInterval(
+      async () => executeHourlyBackfill(),
+      HOURLY_INTERVAL_MS
+    );
 
     logger.info(
       { intervalMs: HOURLY_INTERVAL_MS },
       'Hourly backfill scheduled'
     );
+  }
+
+  /**
+   * Execute hourly backfill - extracted for testability
+   */
+  async function executeHourlyBackfill() {
+    try {
+      await performBackfill('hourly');
+    } catch (error) {
+      logger.error({ err: error }, 'Hourly backfill failed');
+      state.errorCount++;
+    }
   }
 
   /**
@@ -564,21 +461,8 @@ async function eventRecorderPlugin(fastify, options) {
           );
 
           const statsList = statistics[entityId];
-
-          if (Array.isArray(statsList)) {
-            for (const stat of statsList) {
-              statsToWrite.push({
-                entity_id: entityId,
-                period: 'hour',
-                state: stat.state != null ? parseFloat(stat.state) : null,
-                sum: stat.sum != null ? parseFloat(stat.sum) : null,
-                mean: stat.mean != null ? parseFloat(stat.mean) : null,
-                min: stat.min != null ? parseFloat(stat.min) : null,
-                max: stat.max != null ? parseFloat(stat.max) : null,
-                timestamp: new Date(stat.start).getTime() * 1000000, // nanoseconds
-              });
-            }
-          }
+          const transformed = transformStatistics(entityId, statsList, 'hour');
+          statsToWrite.push(...transformed);
         } catch (error) {
           logger.warn({ err: error, entityId }, 'Failed to backfill entity');
         }
@@ -631,6 +515,9 @@ async function eventRecorderPlugin(fastify, options) {
     getState: () => ({ ...state, trackedEntities: state.trackedEntities.size }),
     triggerBackfill: () => performBackfill('manual'),
     reseedDatabase: performInitialSeeding,
+    // Exposed for testing
+    executeHeartbeat,
+    executeHourlyBackfill,
   });
 
   /**
